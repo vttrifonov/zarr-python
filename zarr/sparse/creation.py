@@ -3,7 +3,7 @@ from warnings import warn
 import numpy as np
 from numcodecs.registry import codec_registry
 
-from zarr.core import Array
+from zarr.sparse.core import Array
 from zarr.errors import (
     ArrayNotFoundError,
     ContainsArrayError,
