@@ -48,13 +48,12 @@ class Sparse:
         if not isinstance(k, tuple):
             k = (k,)
 
-
         e = np.where([x==Ellipsis for x in k])[0]
         if len(e)>1:
             raise IndexError('too many ellipsis')            
         if len(e)==1:
             e = e[0]
-            k = k[:e] + tuple([slice(None)]*(len(k)-1)) + k[(e+1):]
+            k = k[:e] + tuple([slice(None)]*(self.ndim-len(k)+1)) + k[(e+1):]
 
         if len(k)!=self.ndim:
             raise IndexError('invalid dim')
@@ -83,7 +82,8 @@ class Sparse:
         v_coords = [_to_list(i, x) for i, x in zip(self.shape, k)]
         d = tuple(s for _, s in v_coords if s>0)
         v_coords = [x for x, _ in v_coords]
-        v_coords = np.array([list(x) for x in it.product(*v_coords)]).T
+        v_coords = list(it.product(*v_coords))
+        v_coords = np.array(v_coords).T
         if isinstance(v, Sparse):
             v = v.x
         if hasattr(v, 'todense'):
