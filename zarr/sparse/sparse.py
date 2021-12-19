@@ -2,6 +2,7 @@ import sparse
 import numpy as np
 import io
 from zarr.sparse.core import Array as _Array
+import itertools as it
 
 def tocoo(v, fill_value):
     if hasattr(v, 'tocoo'):
@@ -44,59 +45,58 @@ class Sparse:
         return Sparse(self.x[k])
 
     def __setitem__(self, k, v):
-        if isinstance(v, Sparse):
-            self[k] = v.x
-            return
-
         if not isinstance(k, tuple):
             k = (k,)
+
+
+        e = np.where([x==Ellipsis for x in k])[0]
+        if len(e)>1:
+            raise IndexError('too many ellipsis')            
+        if len(e)==1:
+            e = e[0]
+            k = k[:e] + tuple([slice(None)]*(len(k)-1)) + k[(e+1):]
 
         if len(k)!=self.ndim:
             raise IndexError('invalid dim')
 
-        x = self.x
-        v = tocoo(v, x.fill_value)
         def _to_list(i, x):
             if isinstance(x, slice):
-                return np.arange(*x.indices(i))
+                x = np.arange(*x.indices(i))
+                return x, len(x)
             x = np.asanyarray(x)
             if x.ndim>1:
                 raise IndexError('int, array-like of int, or bool')
             if x.ndim==0:
-                x = x.reshape(1)
+                return x.reshape(1), 0
             if x.dtype==bool:
                 if x.shape[0]!=i:
                     raise IndexError('bools len mismatch')
                 x = np.where(x)[0]
+                s = len(x)
             else:
                 x = np.array([i+y if y<0 else y for y in x])
                 if any(y>=i or y<0 for y in x):
                     raise IndexError('out of bounds')
-            return x
-        i = [_to_list(i, x) for i, x in zip(self.shape, k)]        
-        v = np.broadcast_to(v, tuple(len(y) for y in i))
-        
-        x_coords = x.coords
-        x_data = x.data
+                s = len(x)
+            return x, s
 
-        if all(x>0 for x in x_coords.shape):
-            j = np.apply_along_axis(
-                lambda x: any(~np.isin(x, y) for x, y in zip(x, i)),
-                0, x_coords
-            )
-            x_coords = x_coords[:, j]
-            x_data = x_data[j]
-
-        def _translate_coord(c):
-            return [x[y] for x, y in zip(i, c)]
-        v_coords = v.coords
-        if all(x>0 for x in v_coords.shape):            
-            v_coords = np.apply_along_axis(_translate_coord, 0, v_coords)
+        v_coords = [_to_list(i, x) for i, x in zip(self.shape, k)]
+        d = tuple(s for _, s in v_coords if s>0)
+        v_coords = [x for x, _ in v_coords]
+        v_coords = np.array([list(x) for x in it.product(*v_coords)]).T
+        if isinstance(v, Sparse):
+            v = v.x
+        if hasattr(v, 'todense'):
+            v = v.todense()
+        else:
+            v = np.asanyarray(v)
+        v = np.broadcast_to(v, d).ravel()
         
-        coords = np.c_[v_coords, x_coords]
-        data = np.r_[v.data, x_data]
+        x = self.x
+        coords = np.c_[v_coords, x.coords]
+        data = np.r_[v, x.data]
         if all(x>0 for x in coords.shape):
-            i = np.apply_along_axis(np.ravel_multi_index, 0, coords, x.shape)
+            i = np.ravel_multi_index(coords, x.shape)
             i = np.unique(i, return_index=True)[1]
             coords = coords[:,i]
             data = data[i]
@@ -114,6 +114,9 @@ class Sparse:
         
     def view(self, dtype):
         return self.astype(dtype)
+
+    def copy(self, *args, **kwargs):
+        return self
 
 def zeros(shape, dtype):
     return Sparse(sparse.zeros(shape, dtype=dtype))

@@ -398,6 +398,7 @@ class Array:
 
     @property
     def _nbytes(self):
+        #VTT
         return self._size * self.itemsize
 
     @property
@@ -861,9 +862,11 @@ class Array:
 
         except KeyError:
             # chunk not initialized
-            chunk = np.zeros((), dtype=self._dtype)
-            if self._fill_value is not None:
-                chunk.fill(self._fill_value)
+            #VTT
+            #chunk = np.zeros((), dtype=self._dtype)
+            #if self._fill_value is not None:
+            #    chunk.fill(self._fill_value)
+            chunk = self._full(())
 
         else:
             chunk = self._decode_chunk(cdata)
@@ -1069,12 +1072,14 @@ class Array:
         indexer = CoordinateIndexer(selection, self)
 
         # handle output - need to flatten
+        #VTT
         if out is not None:
             out = out.reshape(-1)
 
         out = self._get_selection(indexer=indexer, out=out, fields=fields)
 
         # restore shape
+        #VTT
         out = out.reshape(indexer.sel_shape)
 
         return out
@@ -1165,7 +1170,9 @@ class Array:
 
         # setup output array
         if out is None:
-            out = np.empty(out_shape, dtype=out_dtype, order=self._order)
+            #VTT
+            #out = np.empty(out_shape, dtype=out_dtype, order=self._order)
+            out = self._empty(out_shape, dtype=out_dtype)
         else:
             check_array_shape('out', out, out_shape)
 
@@ -1540,9 +1547,12 @@ class Array:
         indexer = CoordinateIndexer(selection, self)
 
         # handle value - need to flatten
-        if not is_scalar(value, self._dtype):
+        #VTT
+        #if not is_scalar(value, self._dtype):
+        if not is_scalar(value, self._dtype) and not hasattr(value, 'shape'):
             value = np.asanyarray(value)
         if hasattr(value, 'shape') and len(value.shape) > 1:
+            #VTT
             value = value.reshape(-1)
 
         self._set_selection(indexer, value, fields=fields)
@@ -1644,9 +1654,11 @@ class Array:
 
         except KeyError:
             # chunk not initialized
-            chunk = np.zeros((), dtype=self._dtype)
-            if self._fill_value is not None:
-                chunk.fill(self._fill_value)
+            #VTT
+            #chunk = np.zeros((), dtype=self._dtype)
+            #if self._fill_value is not None:
+            #    chunk.fill(self._fill_value)
+            chunk = self._full(())
 
         else:
             # decode chunk
@@ -1704,6 +1716,7 @@ class Array:
             pass
         else:
             if not hasattr(value, 'shape'):
+                #VTT
                 value = np.asanyarray(value)
             check_array_shape('value', value, sel_shape)
 
@@ -1790,6 +1803,7 @@ class Array:
                         cdata = cdata.read_full()
                     self._compressor.decode(cdata, dest)
                 else:
+                    #VTT
                     chunk = ensure_ndarray(cdata).view(self._dtype)
                     chunk = chunk.reshape(self._chunks, order=self._order)
                     np.copyto(dest, chunk)
@@ -1800,7 +1814,9 @@ class Array:
             if partial_read_decode:
                 cdata.prepare_chunk()
                 # size of chunk
-                tmp = np.empty(self._chunks, dtype=self.dtype)
+                # #VTT                
+                #tmp = np.empty(self._chunks, dtype=self.dtype)
+                tmp = self._empty(self._chunks)
                 index_selection = PartialChunkIterator(chunk_selection, self.chunks)
                 for start, nitems, partial_out_selection in index_selection:
                     expected_shape = [
@@ -1830,6 +1846,7 @@ class Array:
             chunk = chunk[fields]
         tmp = chunk[chunk_selection]
         if drop_axes:
+            #VTT
             tmp = np.squeeze(tmp, axis=drop_axes)
 
         # store selected data in output
@@ -1855,6 +1872,7 @@ class Array:
             TODO
 
         """
+        #VTT
         out_is_ndarray = True
         try:
             out = ensure_ndarray(out)
@@ -1890,6 +1908,7 @@ class Array:
         This gets called where the storage supports ``getitems``, so that
         it can decide how to fetch the keys, allowing concurrency.
         """
+        #VTT
         out_is_ndarray = True
         try:
             out = ensure_ndarray(out)
@@ -2014,12 +2033,15 @@ class Array:
             if is_scalar(value, self._dtype):
 
                 # setup array filled with value
-                chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
-                chunk.fill(value)
+                #VTT
+                #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
+                #chunk.fill(value)
+                chunk = self._full(self._chunks, value)
 
             else:
 
                 # ensure array is contiguous
+                #VTT
                 chunk = value.astype(self._dtype, order=self._order, copy=False)
 
         else:
@@ -2034,20 +2056,28 @@ class Array:
 
                 # chunk not initialized
                 if self._fill_value is not None:
-                    chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
-                    chunk.fill(self._fill_value)
+                    #VTT                    
+                    #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
+                    #chunk.fill(self._fill_value)
+                    chunk = self._full(self._chunks)
                 elif self._dtype == object:
-                    chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
+                    #VTT
+                    #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
+                    chunk = self._empty(self._chunks)
                 else:
                     # N.B., use zeros here so any region beyond the array has consistent
                     # and compressible data
-                    chunk = np.zeros(self._chunks, dtype=self._dtype, order=self._order)
-
+                    #VTT
+                    #chunk = np.zeros(self._chunks, dtype=self._dtype, order=self._order)
+                    chunk = self._zeros(self._chunks)
             else:
 
                 # decode chunk
                 chunk = self._decode_chunk(cdata)
-                if not chunk.flags.writeable:
+                #VTT
+                #if not chunk.flags.writeable:
+                if hasattr(chunk, 'flags') and not chunk.flags.writeable:
+                    #VTT
                     chunk = chunk.copy(order='K')
 
             # modify
@@ -2082,11 +2112,16 @@ class Array:
             for f in reversed(self._filters):
                 chunk = f.decode(chunk)
 
+        return self._decode_chunk_postprocess(chunk, expected_shape)
+
+    def _decode_chunk_postprocess(self, chunk, expected_shape):
         # view as numpy array with correct dtype
+        #VTT
         chunk = ensure_ndarray(chunk)
         # special case object dtype, because incorrect handling can lead to
         # segfaults and other bad things happening
         if self._dtype != object:
+            #VTT
             chunk = chunk.view(self._dtype)
         elif chunk.dtype != object:
             # If we end up here, someone must have hacked around with the filters.
@@ -2097,12 +2132,17 @@ class Array:
             raise RuntimeError('cannot read object array without object codec')
 
         # ensure correct chunk shape
+        #VTT
         chunk = chunk.reshape(-1, order='A')
         chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
 
         return chunk
 
+    def _encode_chunk_preprocess(self, chunk):
+        return chunk
+
     def _encode_chunk(self, chunk):
+        chunk = self._encode_chunk_preprocess(chunk)
 
         # apply filters
         if self._filters:
@@ -2110,6 +2150,7 @@ class Array:
                 chunk = f.encode(chunk)
 
         # check object encoding
+        #VTT
         if ensure_ndarray(chunk).dtype == object:
             raise RuntimeError('cannot write object array without object codec')
 
@@ -2642,3 +2683,16 @@ class Array:
         filters.insert(0, AsType(encode_dtype=self._dtype, decode_dtype=dtype))
 
         return self.view(filters=filters, dtype=dtype, read_only=True)
+
+    def _empty(self, shape, dtype=None, order=None):
+        return np.empty(shape, dtype=dtype or self._dtype, order=order or self._order)
+
+    def _zeros(self, shape, dtype=None, order=None):
+        return np.zeros(shape, dtype=dtype or self._dtype, order=order or self._order)
+
+    def _full(self, shape, fill_value=None, dtype=None, order=None):
+        fill_value = fill_value or self._fill_value
+        if fill_value is None:
+            return self._zeros(shape, dtype=dtype, order=order)
+        else:
+            return np.full(shape, fill_value, dtype=dtype or self._dtype, order=order or self._order)
