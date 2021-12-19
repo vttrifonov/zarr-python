@@ -9,8 +9,8 @@ import pytest
 from numpy.testing import assert_array_equal
 
 from zarr.codecs import Zlib
-from zarr.core import Array
-from zarr.creation import (array, create, empty, empty_like, full, full_like,
+from zarr.sparse.core import Array
+from zarr.sparse.creation import (array, create, empty, empty_like, full, full_like,
                            ones, ones_like, open_array, open_like, zeros,
                            zeros_like)
 from zarr.hierarchy import open_group
