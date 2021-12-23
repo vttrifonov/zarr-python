@@ -1,8 +1,243 @@
+from _typeshed import Self
 import sparse 
 import numpy as np
 import io
 from zarr.sparse.core import Array as _Array
 import itertools as it
+
+class Sparse1:
+    def __init__(self, 
+        data = None, coords = None, index = None, 
+        fill_value = None, dtype = None,
+        shape = None, 
+        order = 'F',  normalized = False
+    ):
+        if dtype is None:
+            if data is not None:
+                dtype = data.dtype
+            else:
+                dtype = fill_value.dtype
+        else:
+            if data is not None and data.dtype!=dtype:
+                data = data.astype(dtype)
+                
+        if fill_value is None:
+            fill_value = np.array([], dtype=dtype)[()]
+        else:
+            fill_value = np.array(fill_value, dtype=dtype)[()]
+        
+        if shape is None:
+            shape = np.max(coords, axis=1)
+
+        if index is None:
+            if coords is None:
+                index = np.array([], dtype=np.int64)
+            else:
+                index = np.ravel_multi_index(coords, shape=shape, order=order)
+        else:
+            index = np.asanyarray(index).astype(np.int64)
+
+            if index.ndim>1:
+                raise ValueError('index must be 1D')
+
+            if coords is not None:
+                raise ValueError('either index or coords, not both')
+
+            # this is just to validate index
+            _ = np.unravel_index(index, shape=shape, order=order)
+
+        if data is None:
+            data = np.array([], dtype=dtype)
+        else:
+            data = np.asanyarray(data)
+
+            if data.ndim>1:
+                raise ValueError('data must be 1D')
+
+        if len(data) != len(index):
+            raise ValueError('data must have same length as index')
+        
+        self._index = index        
+        self._data = data
+        self._shape = shape
+        self._fill_value = fill_value
+        self._order = order
+        self._normalized = normalized
+
+    @property
+    def ndim(self):
+        return len(self._shape)
+
+    @property
+    def shape(self):
+        return self._shape
+
+    @property
+    def fill_value(self):
+        return self._fill_value
+
+    @property
+    def dtype(self):
+        return self._data.dtype
+
+    @property
+    def order(self):
+        return self._order
+
+    @property
+    def coords(self):
+        return np.unravel_index(
+            self._index, shape=self._shape, order=self._order
+        )
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def normalized(self):
+        return self._normalized
+
+    def normalize(self):
+        index = self._index
+        data = self._data
+        index, _ = np.unique(index, return_index=True)        
+        data = data[_]
+        _ = np.where(data!=self._fill_value)[0]
+        index, data = index[_], data[_]
+        _ = np.argsort(index)
+        index, data = index[_], data[_]
+        return self.__class__(
+            index = index, 
+            data = data,
+            fill_value = self._fill_value, 
+            shape = self._shape, order = self._order, 
+            normalized = True
+        )
+
+    def reshape(self, shape = None, order = None):
+        order = order or self._order
+        shape = shape or self._shape
+
+        if shape == self.__shape and order == self._order:
+            return self
+
+        if order != self.__order:
+            coords = self.coords
+            index = np.ravel_multi_index(
+                coords, shape=shape, order=order
+            )
+            normalized = False
+        else:
+            index = self._index
+            normalized = self._normalized
+
+        return self.__class__(
+            index = index, 
+            data = self._data,
+            fill_value = self._fill_value, 
+            shape = shape, order = order, 
+            normalized = normalized
+        )
+
+    def astype(self, dtype):
+        if dtype == self._dtype:
+            return self
+
+        data = self._data.astype(dtype)
+
+        return self.__class__(
+            index = self._index, 
+            data = data,
+            fill_value = self._fill_value, 
+            shape = self._shape, order = self._order, 
+            normalized = self._normalized
+        )
+
+    def ravel_key(self, k):
+        if not isinstance(k, tuple):
+            k = (k,)
+
+        e = np.where([x==Ellipsis for x in k])[0]
+        if len(e)>1:
+            raise IndexError('too many ellipsis')            
+        if len(e)==1:
+            e = e[0]
+            k = k[:e] + tuple([slice(None)]*(self.ndim-len(k)+1)) + k[(e+1):]
+
+        def _to_list(i, x):
+            if isinstance(x, slice):
+                x = np.arange(*x.indices(i))
+                return x, len(x)
+
+            x = np.asanyarray(x)
+            if x.ndim>1:
+                raise IndexError('int, array-like of int, or bool')
+
+            if x.ndim==0:
+                return x.reshape(1), 0
+
+            if x.dtype==bool:
+                if x.shape[0]!=i:
+                    raise IndexError('bools len mismatch')
+                x = np.where(x)[0]
+            else:
+                x = np.array([i+y if y<0 else y for y in x])
+                if any(y>=i or y<0 for y in x):
+                    raise IndexError('out of bounds')
+            return x, len(x)
+
+        i = [_to_list(i, x) for i, x in zip(self._shape, k)]
+        s = tuple(s for _, s in i if s>0)
+
+        i = [x for x, _ in i]
+        i = list(it.product(*i))
+        i = np.ravel_multi_index(i, shape=s, order = self._order)
+
+        return i, s
+
+    def __getitem__(self, k):
+        i, shape = self.ravel_key(k)        
+        index = (range(x) for x in shape)
+        index = list(it.product(*i))
+        if self._normalized:
+            _ = np.searchsorted(self._index, i)
+            _ = np.where(_<len(self._index))[0]
+            i, index = i[_], index[_]
+            _ = np.where(self._index[_]==i)[0]
+            index, data = index[_], self._data[_]
+        else:
+            pass 
+        
+        return self.__class__(
+            index = index, 
+            data = data,
+            fill_value = self._fill_value, 
+            shape = shape, order = self._order, 
+            normalized = self._normalized
+        )
+
+    def __setitem__(self, k, data):
+        index, shape = self.ravel_key(k)
+
+        if hasattr(data, 'todense'):
+            data = data.todense()
+        else:
+            data = np.asanyarray(data)
+        data = data.astype(self._dtype)
+        data = data.reshape(order = self._order)
+        data = np.broadcast_to(data, shape)
+        data = data.ravel()
+        self._index = np.append(self._index, index)
+        self._data = np.append(self._data, data)
+        self._normalized = False
+
+    def __array__(self):
+        a = np.full(np.prod(self._shape), self._fill_value)
+        a[self._index] = self._data
+        a = a.reshape(self._shape, order=self._order)
+        return a
+
 
 def tocoo(v, fill_value):
     if hasattr(v, 'tocoo'):
