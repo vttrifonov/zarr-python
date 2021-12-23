@@ -17,3 +17,4 @@ x1 = x.reshape((1000,))
 c3 = np.ravel_multi_index(x1.coords, x1.shape)
 
 np.all(c1==c3)
+# %%
