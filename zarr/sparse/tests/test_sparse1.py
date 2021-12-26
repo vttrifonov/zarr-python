@@ -46,44 +46,28 @@ class TestArray(unittest.TestCase):
             Sparse()
 
         with pytest.raises(ValueError):
-            #missing shape
-            Sparse(fill_value=1)
-
-        with pytest.raises(ValueError):
-            #missing coords and index
-            Sparse(data=[1])
-
-        with pytest.raises(ValueError):
-            #both coords and index provided
-            Sparse(data=[1], coords=[1], index=[1])
-
-        with pytest.raises(ValueError):
             #coords must be 2d
             Sparse(data=[1], coords=[1])
-
-        with pytest.raises(ValueError):
-            #index must be 1d
-            Sparse(data=[1], index=[[1,2]])
 
         with pytest.raises(ValueError):
             #too many coords
             Sparse(data=[1], coords=[[1, 2]])
 
         with pytest.raises(ValueError):
-            #too many indices
-            Sparse(data=[1], index=[1,2])
-
-        with pytest.raises(ValueError):
-            #no shape
-            Sparse(data=[1], index=[1])
-
-        with pytest.raises(ValueError):
             #coord too large
             Sparse(data=[1], coords=[[3]], shape=(2,))
 
         with pytest.raises(ValueError):
-            #index too large
-            Sparse(data=[1], index=[100], shape=(2,))
+            #negative coord
+            Sparse(data=[1], coords=[[-1]])
+
+        with pytest.raises(ValueError):
+            #float coord
+            Sparse(data=[1], coords=[[1.1]])
+
+        Sparse(fill_value=1)
+
+        Sparse(data=[1])
 
         Sparse(data=[1], coords=[[0]])
 
@@ -96,9 +80,6 @@ class TestArray(unittest.TestCase):
         Sparse(dtype=object, shape=(2,2))
 
         Sparse(data=[1], coords=[[0]], dtype=str)
-
-        x1 = Sparse(shape=(3,3), dtype=np.float64)
-        x2 = np.zeros((3,3), dtype=np.float64)
 
     def test_broadcasting(self):
         def f(x, s):

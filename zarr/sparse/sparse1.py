@@ -48,10 +48,9 @@ class _conv_single:
     def rev(self, x):
         return np.where(x==0, self.x, -1).astype(np.int64)
 
-
 class Sparse:
     def __init__(self, 
-        data = None, coords = None, index = None, 
+        data = None, coords = None,
         fill_value = None, dtype = None,
         shape = None, 
         order = 'C',  normalized = False
@@ -59,44 +58,35 @@ class Sparse:
         if order is None:
             raise ValueError('missing order')
 
-        if data is not None:
-            data = np.asanyarray(data)
-            if data.ndim!=1:
-                raise ValueError('data must be 1D')
-            if coords is None and index is None:
-                raise ValueError('must provide coords or index')
-
-        if index is not None:
-            if coords is not None:
-                raise ValueError('either index or coords, not both')
-
-            index = np.asanyarray(index, dtype=np.int64)
-
-            if index.ndim!=1:
-                raise ValueError('index must be 1D')
-            
-            if data is None:
-                if len(index)>0:
-                    ValueError('data and index must have same length')
-            else:
-                if len(index) != len(data):
-                    raise ValueError('data and index must have same length')
-        else:
-            if coords is None:
-                index = np.array([], dtype=np.int64)
-
         if coords is not None:
-            coords = np.asanyarray(coords)     
-            if coords.ndim!=2:
+            coords = np.asarray(coords)     
+            if coords.ndim != 2:
                 raise ValueError('coords must be 2D')
+            if np.any(coords<0):
+                raise ValueError('coords cannot be negative')
+            try:
+                _ = coords.astype(np.int64, casting='safe')
+            except TypeError:
+                raise ValueError('coords must be int')
+
             if data is None:
-                if coords.shape[1]>0: 
+                if coords.shape[1]>0:
                     raise ValueError('data and coords must have same length')
             else:
+                data = np.asarray(data)
+                if data.ndim != 1:
+                    raise ValueError('data must be 1D')
                 if coords.shape[1] != len(data):
                     raise ValueError('data and coords must have same length')
-                if np.any(coords<0):
-                    raise ValueError('coords cannot be negative')
+        else:
+            if data is not None:            
+                try:
+                    data = np.full((1,), data)
+                except ValueError:
+                    _ = np.empty((1,), dtype=object)
+                    _[0] = data
+                    data = _
+                coords = np.empty((0,1), dtype=np.int64)
 
         if dtype is None:
             if data is not None:
@@ -116,26 +106,33 @@ class Sparse:
                 fill_value = np.full((), fill_value)[()]
         
         if shape is None:
-            if coords is None:
-                raise ValueError('cannot infer shape')
-            shape = np.max(coords, axis=1)+1
-        shape = tuple(shape)
-
-        if index is None:
-            index = np.ravel_multi_index(coords, shape, order=order)
+            if coords is None:                
+                shape = ()
+            else:
+                shape = np.max(coords, axis=1)+1
         else:
-            #validate index
-            _ = np.unravel_index(index, shape, order=order) 
+            if coords is not None:
+                if len(shape) != coords.shape[0]:
+                    raise ValueError('shape and coords must have same dims')
+
+                if coords.shape[1]>0:
+                    if any(x>=y for x, y in zip(np.max(coords, axis=1), shape)):
+                        raise ValueError('coordinate too large')
+
+        shape = tuple(shape)
 
         if data is None:
             data = np.array([], dtype=dtype)
         else:
             data = data.astype(dtype)
 
+        if coords is None:
+            coords = np.empty((len(shape),0), dtype=np.int64)
+
         normalized = np.full((), normalized, dtype=bool)[()]
         
-        self._index = index        
         self._data = data
+        self._coords = coords
         self._shape = shape
         self._fill_value = fill_value
         self._order = order
@@ -162,9 +159,17 @@ class Sparse:
         return self._order
 
     @property
+    def size(self):
+        return np.prod(self._shape)
+
+    @property
     def coords(self):
-        return np.unravel_index(
-            self._index, self._shape, order=self._order
+        return self._coords
+
+    @property
+    def index(self):
+        return np.ravel_multi_index(
+            self._coords, self._shape, order=self._order
         )
 
     @property
@@ -176,17 +181,17 @@ class Sparse:
         return self._normalized
 
     def normalize(self):
-        index = self._index
+        index = self.index
         data = self._data
+        coords = self._coords
         index, _ = np.unique(index, return_index=True)        
-        data = data[_]
+        data, coords = data[_], coords[:, _]
         _ = np.where(data!=self._fill_value)[0]
-        index, data = index[_], data[_]
+        index, data, coords = index[_], data[_], coords[:,_]
         _ = np.argsort(index)
-        index, data = index[_], data[_]
+        data, coords = data[_], coords[:,_]
         return self.__class__(
-            index = index, 
-            data = data,
+            data = data, coords=coords,
             fill_value = self._fill_value, 
             shape = self._shape, order = self._order, 
             normalized = True
@@ -199,19 +204,14 @@ class Sparse:
         if shape == self._shape and order == self._order:
             return self
 
-        if order != self._order:
-            coords = self.coords
-            index = np.ravel_multi_index(
-                coords, shape, order=order
-            )
-            normalized = False
-        else:
-            index = self._index
-            normalized = self._normalized
+        coords = np.unravel_index(
+            self.index, shape=shape, order=order
+        )
+        normalized = False
 
         return self.__class__(
-            index = index, 
             data = self._data,
+            coords = coords,
             fill_value = self._fill_value, 
             shape = shape, order = order, 
             normalized = normalized
@@ -267,7 +267,7 @@ class Sparse:
 
     def __getitem__(self, k):
         conv = self._conv_key(k)
-        coords = zip(conv, list(self.coords))
+        coords = zip(conv, list(self._coords))
         coords = [x[0].fwd(x[1]) for x in coords]
         coords = np.array(coords)
         i = np.all(coords>=0, axis=0)
@@ -291,26 +291,23 @@ class Sparse:
         v = v.reshape(shape, order = self._order)
         #needs broadcasting
 
-        coords = zip(conv, list(self.coords))
+        coords = zip(conv, list(self._coords))
         coords = [x[0].fwd(x[1]) for x in coords]
         coords = np.array(coords)
         i = np.any(coords<0, axis=0)
-        index = self._index[i]
-        data = self._data[i]
+        data, coords = self._index[i], self._coords[:,i]
 
         coords1 = zip(conv, list(v.coords))
         coords1 = [x[0].rev(x[1]) for x in coords1]        
         coords1 = np.array(coords1)
-        index1 = np.ravel_multi_index(
-            coords1, self._shape, order=self._order
-        )
-        self._index = np.r_[index1, index]
+
+        self._coords = np.c_[coords1, coords]
         self._data = np.r_[v.data, data]
         self._normalized = False
 
     def __array__(self):
-        a = np.full(np.prod(self._shape), self._fill_value)
-        a[self._index] = self._data
+        a = np.full(self.size, self._fill_value)
+        a[self.index] = self._data
         a = a.reshape(self._shape, order=self._order)
         return a
 
