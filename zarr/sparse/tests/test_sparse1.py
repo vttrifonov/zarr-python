@@ -5,6 +5,11 @@ import numpy as np
 from zarr.sparse.sparse1 import Sparse
 import pytest
 
+def array(x, shape, dtype):
+    x1 = np.empty(shape, dtype=dtype)
+    x2 = x1.ravel()
+    x2[...] = x
+    return x1
 
 #%%
 class TestArray(unittest.TestCase):
@@ -65,22 +70,90 @@ class TestArray(unittest.TestCase):
             #float coord
             Sparse(data=[1], coords=[[1.1]])
 
-        Sparse(fill_value=1)
+        def f(x1, x2):
+            np.testing.assert_array_equal(
+                np.array(x1), x2
+            )
 
-        Sparse(data=[1])
+        f(Sparse(fill_value=1), array(1, (), np.int64))
 
-        Sparse(data=[1], coords=[[0]])
+        f(Sparse(fill_value=0, shape=(0,)), array([], (0,), np.int64))
 
-        Sparse(fill_value=1, shape=(2,2))
+        f(Sparse(data=1), array([1], (), np.int64))
 
-        Sparse(fill_value=[1,2,3], shape=(2,2))
+        f(Sparse(data=[1]), array([[1]], (), object))
 
-        Sparse(dtype=str, shape=(2,2))
+        f(Sparse(data=[1], coords=[[0]]), array([1], (1,), np.int64))
 
-        Sparse(dtype=object, shape=(2,2))
+        f(Sparse(fill_value=1, shape=(2,2)), array([1]*4, (2,2), np.int64))
 
-        Sparse(data=[1], coords=[[0]], dtype=str)
+        f(Sparse(fill_value=[1,2,3], shape=(2,2)), array([[1,2,3]]*4, (2,2), object))
 
+        f(Sparse(dtype=str, shape=(2,2)), array(['']*4, (2,2), str))
+
+        f(Sparse(dtype=object, shape=(2,2)), array([0]*4, (2,2), object))
+
+        f(Sparse(data=[1], coords=[[0]], dtype=str), array(['1'], (1,), str))
+
+        f(Sparse(data=[1,2], coords=[[0,0], [0,1]]), array([1,2], (1,2), np.int64))
+
+        f(Sparse(data=[1,2], coords=[[0,1], [0,0]]), array([1,2], (2,1), np.int64))
+
+        f(Sparse(data=[1,2], coords=[[0,1], [0,1]]), array([1,0,0,2], (2,2), np.int64))
+
+    def test_reshape(self):
+        def f(x, s, o):
+            try:
+                x1 = np.array(x.reshape(s, order=o))
+            except Exception:
+                x1 = 'err'
+
+            try:
+                x2 = np.array(x).reshape(s, order=o)
+            except Exception:
+                x2 = 'err'
+
+            np.testing.assert_array_equal(
+                x1, x2,
+                err_msg = f'x: {np.array(x)}, s: {s}, o: {o}'
+            )
+
+        f(Sparse(data=[1], coords=[[0]]), (), 'F')
+
+        x = [
+            Sparse(data=1),
+            Sparse(data=[1], coords=[[0]]),
+            Sparse(data=[1,2], coords=[[0,0], [0,1]]),
+            Sparse(data=[1,2], coords=[[0,1], [0,0]]),
+            Sparse(data=[1,2], coords=[[0,1], [0,1]])
+        ]
+
+        s = [
+            (),
+            (0,),
+            (1,),            
+            (2,),
+            (1, 0),
+            (0, 1),
+            (2, 0),
+            (0, 2),
+            (1, 2),
+            (2, 1),
+            (2, 2),
+            (1, 1, 2),
+            (2, 1, 1),
+            (2, 1, 2),
+            (1, 2, 2),
+            (2, 2, 2)
+        ]
+
+        o = ['F', 'C']
+
+        for x1 in x:
+            for s1 in s:
+                for o1 in o:
+                    f(x1, s1, o1)
+        
     def test_broadcasting(self):
         def f(x, s):
             try:
@@ -95,35 +168,36 @@ class TestArray(unittest.TestCase):
 
             np.testing.assert_array_equal(x1, x2)
 
-        x = Sparse(data=[0], coords=[[0]])
-        f(x, (2,))
-        f(x, (2,2))
-        f(x, (2,2,2))
-        f(x, (0,))
+        x = [
+            Sparse(data=1),
+            Sparse(data=[1], coords=[[0]]),
+            Sparse(data=[1,2], coords=[[0,0], [0,1]]),
+            Sparse(data=[1,2], coords=[[0,1], [0,0]]),
+            Sparse(data=[1,2], coords=[[0,1], [0,1]])
+        ]
 
-        x = Sparse(data=[0,1], coords=[[0,1]])
-        f(x, (0,))
-        f(x, (1,))
-        f(x, (2,))
-        f(x, (1,2))
-        f(x, (2,1))
-        f(x, (2,2))
-        f(x, (2,0))
-        f(x, (0,2))
-        f(x, (1,0))
-        f(x, (0,1))
+        s = [
+            (),
+            (0,),
+            (1,),            
+            (2,),
+            (1, 0),
+            (0, 1),
+            (2, 0),
+            (0, 2),
+            (1, 2),
+            (2, 1),
+            (2, 2),
+            (1, 1, 2),
+            (2, 1, 1),
+            (2, 1, 2),
+            (1, 2, 2),
+            (2, 2, 2)
+        ]
 
-        x = Sparse(data=[0,1], coords=[[0, 1],[0, 0]])
-        f(x, (0,))
-        f(x, (1,))
-        f(x, (2,))
-        f(x, (1,2))
-        f(x, (2,1))
-        f(x, (2,2))
-        f(x, (0,2))
-        f(x, (2,0))
-        f(x, (1,0))
-        f(x, (0,1))
+        for x1 in x:
+            for s1 in s:        
+                f(x1, s1)
 
     def test_indexing(self):
         x1 = Sparse(shape=(3,3), dtype=np.float64)

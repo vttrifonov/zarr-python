@@ -81,7 +81,9 @@ class Sparse:
         else:
             if data is not None:            
                 try:
-                    data = np.full((1,), data)
+                    _ = np.full((1,), data)
+                    _[0] = data
+                    data = _
                 except ValueError:
                     _ = np.empty((1,), dtype=object)
                     _[0] = data
@@ -160,14 +162,14 @@ class Sparse:
 
     @property
     def size(self):
-        return np.prod(self._shape)
+        return np.prod(self._shape).astype(np.int64)
 
     @property
     def coords(self):
         return self._coords
 
     @property
-    def index(self):
+    def _index(self):
         return np.ravel_multi_index(
             self._coords, self._shape, order=self._order
         )
@@ -181,7 +183,7 @@ class Sparse:
         return self._normalized
 
     def normalize(self):
-        index = self.index
+        index = self._index
         data = self._data
         coords = self._coords
         index, _ = np.unique(index, return_index=True)        
@@ -199,18 +201,32 @@ class Sparse:
 
     def reshape(self, shape = None, order = None):
         order = order or self._order
-        shape = shape or self._shape
+        shape = self._shape if shape is None else shape
+
+        if self.size != np.prod(shape).astype(np.int64):
+            raise ValueError('cannot reshape')
 
         if shape == self._shape and order == self._order:
             return self
 
-        coords = np.unravel_index(
-            self.index, shape=shape, order=order
-        )
+        data = self._data
+        if self.shape == ():
+            if shape==(1,):
+                coords = np.array([[0]], dtype=self.coords.dtype)
+            else:
+                coords = self._coords
+        else:
+            if shape == ():
+                coords = None
+                data = data[0]
+            else:
+                coords = np.unravel_index(
+                    self._index, shape=shape, order=order
+                )
         normalized = False
 
         return self.__class__(
-            data = self._data,
+            data = data,
             coords = coords,
             fill_value = self._fill_value, 
             shape = shape, order = order, 
@@ -306,9 +322,14 @@ class Sparse:
         self._normalized = False
 
     def __array__(self):
-        a = np.full(self.size, self._fill_value)
-        a[self.index] = self._data
-        a = a.reshape(self._shape, order=self._order)
+        a = np.empty(self._shape, dtype=self.dtype)
+        a.fill(self._fill_value)
+        if a.shape==():
+            if len(self._data)>0:
+                a[()] = self._data[0]
+        else:
+            if len(self._data)>0:
+                a[tuple(self._coords)] = self._data
         return a
 
     def broadcast_to(self, shape):
