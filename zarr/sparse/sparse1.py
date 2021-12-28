@@ -5,6 +5,7 @@ class _conv_slice:
     def __init__(self, s):
         self.s = s
         self.len = np.int64(np.ceil((s.stop-s.start)/s.step))
+        self.keep = True
 
     def fwd(self, x):
         r = (x - self.s.start)/self.s.step
@@ -22,6 +23,7 @@ class _conv_list:
     def __init__(self, l):
         self.l = l
         self.len = np.int64(len(l))
+        self.keep = True
 
     def fwd(self, x):        
         r1 = np.searchsorted(self.l, x)
@@ -41,12 +43,82 @@ class _conv_single:
     def __init__(self, x):
         self.x = x
         self.len = np.int64(0)
+        self.keep = False
     
     def fwd(self, x):
         return np.where(x==self.x, 0, -1).astype(np.int64)
 
     def rev(self, x):
         return np.where(x==0, self.x, -1).astype(np.int64)
+
+def _conv(n, x):
+    if isinstance(x, slice):
+        return _conv_slice(slice(*x.indices(n)))
+
+    x = np.asanyarray(x)
+    if x.ndim>1:
+        raise IndexError('int, array-like of int, or bool')
+
+    if x.ndim==0:
+        x = x if x>=0 else n+x
+        if x>=n or x<0:
+            raise IndexError('out of bounds')
+        return _conv_single(x)
+
+    if x.dtype==bool:
+        if len(x) != n:
+            raise IndexError('bools len mismatch')
+        return _conv_list(np.where(x)[0])
+
+    x = np.array([n+y if y<0 else y for y in x])
+    if any(y>=n or y<0 for y in x):
+        raise IndexError('out of bounds')
+    return _conv_list(x)
+
+
+def _conv_coords(conv, coords):
+    coords = zip(conv, list(coords))
+    coords = [x[0](x[1]) for x in coords]
+    coords = np.array(coords)
+    return coords
+
+class _conv_key:
+    def __init__(self, k, s):
+        if not isinstance(k, tuple):
+            k = (k,)
+
+        e = np.where([x==Ellipsis for x in k])[0]
+        if len(e)>1:
+            raise IndexError('too many ellipsis')            
+        if len(e)==1:
+            e = e[0]
+            k = k[:e] + tuple([slice(None)]*(len(s)-len(k)+1)) + k[(e+1):]
+
+        self.conv = [_conv(n, x) for n, x in zip(s, k)]
+
+    def fwd(self, coords):
+        return _conv_coords(
+            [x.fwd for x in self.conv], 
+            coords
+        )
+
+    def rev(self, coords):
+        return _conv_coords(
+            [x.rev for x in self.conv], 
+            coords
+        )
+
+    @property
+    def shape1(self):
+        return tuple(x.len for x in self.conv if x.keep)
+
+    @property
+    def shape2(self):
+        return tuple(x.len if x.keep else 1 for x in self.conv)
+
+    @property
+    def keep_dims(self):
+        return [x.keep for x in self.conv]
 
 class Sparse:
     def __init__(self, 
@@ -111,7 +183,10 @@ class Sparse:
             if coords is None:                
                 shape = ()
             else:
-                shape = np.max(coords, axis=1)+1
+                if coords.shape[1]>0:
+                    shape = np.max(coords, axis=1)+1
+                else:
+                    shape = (0,)*coords.shape[0]
         else:
             if coords is not None:
                 if len(shape) != coords.shape[0]:
@@ -211,10 +286,10 @@ class Sparse:
 
         data = self._data
         if self.shape == ():
-            if shape==(1,):
-                coords = np.array([[0]], dtype=self.coords.dtype)
-            else:
-                coords = self._coords
+            coords = np.zeros(
+                (len(shape), self.coords.shape[1]),
+                dtype=self.coords.dtype
+            )
         else:
             if shape == ():
                 coords = None
@@ -238,60 +313,25 @@ class Sparse:
             return self
 
         data = self._data.astype(dtype)
-
         return self.__class__(
-            index = self._index, 
             data = data,
+            coords = self._coords,             
             fill_value = self._fill_value, 
             shape = self._shape, order = self._order, 
             normalized = self._normalized
         )
 
     def _conv_key(self, k):
-        if not isinstance(k, tuple):
-            k = (k,)
-
-        e = np.where([x==Ellipsis for x in k])[0]
-        if len(e)>1:
-            raise IndexError('too many ellipsis')            
-        if len(e)==1:
-            e = e[0]
-            k = k[:e] + tuple([slice(None)]*(self.ndim-len(k)+1)) + k[(e+1):]
-
-        def conv(i, x):
-            if isinstance(x, slice):
-                return _conv_slice(x.indices(i))
-
-            x = np.asanyarray(x)
-            if x.ndim>1:
-                raise IndexError('int, array-like of int, or bool')
-
-            if x.ndim==0:
-                return _conv_single(x)
-
-            if x.dtype==bool:
-                if len(x)!=i:
-                    raise IndexError('bools len mismatch')
-                return _conv_list(np.where(x)[0])
-
-            x = np.array([i+y if y<0 else y for y in x])
-            if any(y>=i or y<0 for y in x):
-                raise IndexError('out of bounds')
-            return _conv_list(x)
-
-        return [conv(i, x) for i, x in zip(self._shape, k)]
+        return _conv_key(k, self._shape)
 
     def __getitem__(self, k):
         conv = self._conv_key(k)
-        coords = zip(conv, list(self._coords))
-        coords = [x[0].fwd(x[1]) for x in coords]
-        coords = np.array(coords)
+        shape = conv.shape1 
+        coords = conv.fwd(self._coords)        
         i = np.all(coords>=0, axis=0)
-        coords = coords[:,i]
-        coords = coords[[x.len>0 for x in conv],:]
-        data = self._data[i]
-        shape = tuple(x.len for x in conv if x.len>0)
-        
+        coords = coords[conv.keep_dims,:]
+        coords, data = coords[:,i], self._data[i]
+
         return self.__class__(
             coords = coords, 
             data = data,
@@ -302,22 +342,17 @@ class Sparse:
 
     def __setitem__(self, k, v):
         conv = self._conv_key(k)
-        shape = tuple(x.len if x.len>0 else 1 for x in conv)
+
         v = v.astype(self.dtype)
-        v = v.reshape(shape, order = self._order)
-        #needs broadcasting
+        v = v.broadcast_to(conv.shape1)
+        v = v.reshape(shape=conv.shape2, order=self._order)
+        v_coords = conv.rev(v.coords)
 
-        coords = zip(conv, list(self._coords))
-        coords = [x[0].fwd(x[1]) for x in coords]
-        coords = np.array(coords)
-        i = np.any(coords<0, axis=0)
-        data, coords = self._index[i], self._coords[:,i]
+        i = conv.fwd(self._coords)
+        i = np.any(i<0, axis=0)
+        data, coords = self.data[i], self._coords[:,i]
 
-        coords1 = zip(conv, list(v.coords))
-        coords1 = [x[0].rev(x[1]) for x in coords1]        
-        coords1 = np.array(coords1)
-
-        self._coords = np.c_[coords1, coords]
+        self._coords = np.c_[v_coords, coords]
         self._data = np.r_[v.data, data]
         self._normalized = False
 
@@ -381,7 +416,26 @@ class Sparse:
             normalized = self._normalized
         )
 
-
+def from_numpy(data, fill_value=None):
+    data = np.array(data)    
+    shape = data.shape
+    data = data.ravel()
+    if shape==():
+        coords = np.zeros((0,len(data)), dtype=np.int64)
+    else:
+        if all(n>0 for n in shape):
+            coords = [range(n) for n in shape]
+            coords = list(it.product(*coords))
+            coords = np.array(coords).T
+        else:
+            coords = np.zeros((len(shape),0), dtype=np.int64)
+    
+    return Sparse(
+        data = data,
+        coords = coords,
+        shape = shape,
+        fill_value=fill_value
+    )
 
 
         

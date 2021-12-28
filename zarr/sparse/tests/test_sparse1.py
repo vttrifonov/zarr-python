@@ -2,7 +2,7 @@
 import unittest
 import sparse
 import numpy as np
-from zarr.sparse.sparse1 import Sparse
+from zarr.sparse.sparse1 import Sparse, from_numpy
 import pytest
 
 def array(x, shape, dtype):
@@ -75,6 +75,10 @@ class TestArray(unittest.TestCase):
                 np.array(x1), x2
             )
 
+        f(Sparse(data=[], coords=np.empty((0,0), dtype=np.int64)), array(0, (), np.float64))
+
+        f(Sparse(data=[], coords=np.empty((3,0), dtype=np.int64)), array([], (0,0,0), np.float64))
+
         f(Sparse(fill_value=1), array(1, (), np.int64))
 
         f(Sparse(fill_value=0, shape=(0,)), array([], (0,), np.int64))
@@ -118,9 +122,9 @@ class TestArray(unittest.TestCase):
                 err_msg = f'x: {np.array(x)}, s: {s}, o: {o}'
             )
 
-        f(Sparse(data=[1], coords=[[0]]), (), 'F')
-
         x = [
+            Sparse(data=[], coords=np.empty((0,0), dtype=np.int64)),
+            Sparse(data=[], coords=np.empty((3,0), dtype=np.int64)),
             Sparse(data=1),
             Sparse(data=[1], coords=[[0]]),
             Sparse(data=[1,2], coords=[[0,0], [0,1]]),
@@ -169,6 +173,8 @@ class TestArray(unittest.TestCase):
             np.testing.assert_array_equal(x1, x2)
 
         x = [
+            Sparse(data=[], coords=np.empty((0,0), dtype=np.int64)),
+            Sparse(data=[], coords=np.empty((3,0), dtype=np.int64)),
             Sparse(data=1),
             Sparse(data=[1], coords=[[0]]),
             Sparse(data=[1,2], coords=[[0,0], [0,1]]),
@@ -199,23 +205,63 @@ class TestArray(unittest.TestCase):
             for s1 in s:        
                 f(x1, s1)
 
-    def test_indexing(self):
+    def test_getitem(self):
+        def f(x, s):
+            try:
+                x3 = np.array(x[s])
+            except Exception:
+                x3 = 'err'
+
+            try:
+                x4 = np.array(x)[s]
+            except Exception:
+                x4 = 'err'
+
+            np.testing.assert_array_equal(
+                x3, x4,
+                err_msg = f'x: {np.array(x)}, s: {s}'
+            )
+
+        x = [
+            Sparse(data=[0,1,2], coords=[[0,1,2],[0,1,2]])
+        ]
+
+        s = [
+            np.s_[0,0],
+            np.s_[1,[1,2]],
+            np.s_[1,:2],
+            np.s_[[True, False, True], 1],
+            np.s_[[1,2], :3],
+            np.s_[[True, False, True], :3],
+            np.s_[1:, :1],
+            np.s_[3,:],
+            np.s_[:3,:3],
+            np.s_[:3,4:],
+            np.s_[[],1]
+        ]
+
+        for x1 in x:
+            for s1 in s:
+                f(x1, s1)
+
+    def test_setitem(self):
+        np.array(from_numpy(1))
+
         x1 = Sparse(shape=(3,3), dtype=np.float64)
-        x2 = np.zeros((3,3), dtype=np.float64)
+        x2 = np.array(x1)
         def f(i, v):
             x1[i] = v
-            x2[i] = v
-            x3 = x1.normalize()
-            assert np.all(np.array(x3)==x2)
-        f(np.s_[:1,:1], 1)
-        f(np.s_[0, 1:], 2)
-        f(np.s_[[0,2], 2], 3)
-        f(np.s_[[1], [False, True, False]], 4)
-        f(np.s_[:4:2, :4:2], 5)
-        f(np.s_[:4:2, :4:2], [[1,2], [3,4]])
-        f(np.s_[:4:2, :4:2], [[1,2]])
-        f(np.s_[:4:2, :4:2], [[1],[2]])
-        f(np.s_[:2, 0], [1,2])
+            x2[i] = np.array(v)
+            np.testing.assert_array_equal(np.array(x1), x2)
+        f(np.s_[:1,:1], from_numpy(1))
+        f(np.s_[0, 1:], from_numpy(2))
+        f(np.s_[[0,2], 2], from_numpy(3))
+        f(np.s_[[1], [False, True, False]], from_numpy(4))
+        f(np.s_[:4:2, :4:2], from_numpy(5))
+        f(np.s_[:4:2, :4:2], from_numpy([[1,2], [3,4]]))
+        f(np.s_[:4:2, :4:2], from_numpy([[1,2]]))
+        f(np.s_[:4:2, :4:2], from_numpy([[1],[2]]))
+        f(np.s_[:2, 0], from_numpy([1,2]))
 
 
 # %%
