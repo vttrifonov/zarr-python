@@ -2,7 +2,7 @@
 import unittest
 import sparse
 import numpy as np
-from zarr.sparse.sparse1 import Sparse, from_numpy
+from zarr.sparse.sparse1 import Sparse
 import pytest
 
 def array(x, shape, dtype):
@@ -75,6 +75,10 @@ class TestArray(unittest.TestCase):
                 np.array(x1), x2
             )
 
+        f(Sparse(data=[]), array([0], (0,), np.float64))
+
+        f(Sparse(data=np.empty((0,2))), array([], (0,2), np.float64))
+
         f(Sparse(data=[], coords=np.empty((0,0), dtype=np.int64)), array(0, (), np.float64))
 
         f(Sparse(data=[], coords=np.empty((3,0), dtype=np.int64)), array([], (0,0,0), np.float64))
@@ -85,7 +89,13 @@ class TestArray(unittest.TestCase):
 
         f(Sparse(data=1), array([1], (), np.int64))
 
-        f(Sparse(data=[1]), array([[1]], (), object))
+        f(Sparse(data=0), array([0], (), np.int64))
+
+        f(Sparse(data=[[1,0], [0,2]]), array([1,0,0,2], (2,2), np.int64))
+
+        f(Sparse(data=[1,2,3,4], shape=(2,2)), array([1,2,3,4], (2,2), np.int64))
+
+        f(Sparse(data=[1]), array([1], (1,), np.int64))
 
         f(Sparse(data=[1], coords=[[0]]), array([1], (1,), np.int64))
 
@@ -245,23 +255,21 @@ class TestArray(unittest.TestCase):
                 f(x1, s1)
 
     def test_setitem(self):
-        np.array(from_numpy(1))
-
         x1 = Sparse(shape=(3,3), dtype=np.float64)
         x2 = np.array(x1)
         def f(i, v):
             x1[i] = v
             x2[i] = np.array(v)
             np.testing.assert_array_equal(np.array(x1), x2)
-        f(np.s_[:1,:1], from_numpy(1))
-        f(np.s_[0, 1:], from_numpy(2))
-        f(np.s_[[0,2], 2], from_numpy(3))
-        f(np.s_[[1], [False, True, False]], from_numpy(4))
-        f(np.s_[:4:2, :4:2], from_numpy(5))
-        f(np.s_[:4:2, :4:2], from_numpy([[1,2], [3,4]]))
-        f(np.s_[:4:2, :4:2], from_numpy([[1,2]]))
-        f(np.s_[:4:2, :4:2], from_numpy([[1],[2]]))
-        f(np.s_[:2, 0], from_numpy([1,2]))
+        f(np.s_[:1,:1], Sparse(1))
+        f(np.s_[0, 1:], Sparse(2))
+        f(np.s_[[0,2], 2], Sparse(3))
+        f(np.s_[[1], [False, True, False]], Sparse(4))
+        f(np.s_[:4:2, :4:2], Sparse(5))
+        f(np.s_[:4:2, :4:2], Sparse([[1,2], [3,4]]))
+        f(np.s_[:4:2, :4:2], Sparse([[1,2]]))
+        f(np.s_[:4:2, :4:2], Sparse([[1],[2]]))
+        f(np.s_[:2, 0], Sparse([1,2]))
 
 
 # %%

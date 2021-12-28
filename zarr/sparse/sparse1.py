@@ -21,17 +21,28 @@ class _conv_slice:
 
 class _conv_list:
     def __init__(self, l):
-        self.l = l
-        self.len = np.int64(len(l))
+        #l = np.array([2,1,0,0,1,2])
+        n = np.int64(len(l))
+        o = np.argsort(l)        
+        i = np.arange(n)[o]
+        u = np.unique(l[o], return_index=True)
+        i = np.split(i, u[1][1:])
+        self.l = u[0]
+        self.i = i
+        self.j = [l[x] for x in i]
+        self.len = n
         self.keep = True
 
-    def fwd(self, x):        
+    def fwd(self, x):
         r1 = np.searchsorted(self.l, x)
         i = np.where(r1<len(self.l))[0]
         i = i[x[i]==self.l[r1[i]]]
         r = np.full(len(x), -1, dtype=np.int64)
         r[i] = r1[i]
         return r.astype(np.int64)
+
+    def fwd1(self, x):
+
 
     def rev(self, x):
         r = np.full(len(x), -1, dtype=np.int64)
@@ -131,7 +142,7 @@ class Sparse:
             raise ValueError('missing order')
 
         if coords is not None:
-            coords = np.asarray(coords)     
+            coords = np.asarray(coords)
             if coords.ndim != 2:
                 raise ValueError('coords must be 2D')
             if np.any(coords<0):
@@ -150,17 +161,40 @@ class Sparse:
                     raise ValueError('data must be 1D')
                 if coords.shape[1] != len(data):
                     raise ValueError('data and coords must have same length')
+
+            if shape is None:
+                if coords.shape[1]>0:
+                    shape = np.max(coords, axis=1)+1
+                else:
+                    shape = (0,)*coords.shape[0]
+            else:
+                if len(shape) != coords.shape[0]:
+                    raise ValueError('shape and coords must have same dims')
+
+                if coords.shape[1]>0:
+                    if any(x>=y for x, y in zip(np.max(coords, axis=1), shape)):
+                        raise ValueError('coordinate too large')
         else:
-            if data is not None:            
-                try:
-                    _ = np.full((1,), data)
-                    _[0] = data
-                    data = _
-                except ValueError:
-                    _ = np.empty((1,), dtype=object)
-                    _[0] = data
-                    data = _
-                coords = np.empty((0,1), dtype=np.int64)
+            if data is not None:
+                data = np.asarray(data)
+                if shape is None:
+                    shape = data.shape
+            else:
+                if shape is None:
+                    shape = ()
+                coords = np.empty((len(shape),0), dtype=np.int64)
+
+        shape = np.asarray(shape)
+        if shape.ndim != 1:
+            raise ValueError('coords must be 1D')
+        if np.any(shape<0):
+            raise ValueError('shape cannot be negative')
+        if len(shape)>0:
+            try:
+                _ = shape.astype(np.int64, casting='safe')
+            except TypeError:
+                raise ValueError('shape must be int')
+        shape = tuple(shape)
 
         if dtype is None:
             if data is not None:
@@ -179,32 +213,20 @@ class Sparse:
             if dtype!=object:
                 fill_value = np.full((), fill_value)[()]
         
-        if shape is None:
-            if coords is None:                
-                shape = ()
-            else:
-                if coords.shape[1]>0:
-                    shape = np.max(coords, axis=1)+1
-                else:
-                    shape = (0,)*coords.shape[0]
-        else:
-            if coords is not None:
-                if len(shape) != coords.shape[0]:
-                    raise ValueError('shape and coords must have same dims')
-
-                if coords.shape[1]>0:
-                    if any(x>=y for x, y in zip(np.max(coords, axis=1), shape)):
-                        raise ValueError('coordinate too large')
-
-        shape = tuple(shape)
-
         if data is None:
             data = np.array([], dtype=dtype)
         else:
-            data = data.astype(dtype)
-
-        if coords is None:
-            coords = np.empty((len(shape),0), dtype=np.int64)
+            data = data.astype(dtype)            
+            if coords is None:
+                data = data.reshape(shape, order=order)
+                if shape == ():
+                    data = data.ravel()
+                    data = data[data!=fill_value]
+                    coords = np.empty((0,len(data)), dtype=np.int64)
+                else:
+                    coords = np.nonzero(data!=fill_value)
+                    data = data[coords]
+                    coords = np.array(coords)
 
         normalized = np.full((), normalized, dtype=bool)[()]
         
@@ -415,28 +437,6 @@ class Sparse:
             shape = shape, order = self._order, 
             normalized = self._normalized
         )
-
-def from_numpy(data, fill_value=None):
-    data = np.array(data)    
-    shape = data.shape
-    data = data.ravel()
-    if shape==():
-        coords = np.zeros((0,len(data)), dtype=np.int64)
-    else:
-        if all(n>0 for n in shape):
-            coords = [range(n) for n in shape]
-            coords = list(it.product(*coords))
-            coords = np.array(coords).T
-        else:
-            coords = np.zeros((len(shape),0), dtype=np.int64)
-    
-    return Sparse(
-        data = data,
-        coords = coords,
-        shape = shape,
-        fill_value=fill_value
-    )
-
 
         
         
