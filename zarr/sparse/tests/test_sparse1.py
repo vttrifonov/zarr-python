@@ -18,6 +18,18 @@ class TestArray(unittest.TestCase):
             _conv_list, _conv_slice, _conv_single
         ) 
 
+        c = _conv_list(np.array([]))
+        x1 = c.fwd(np.array([1, 1, 0, 3, 5, -2]))
+        x2 = np.array([-1, -1, -1, -1, -1, -1])
+        assert np.all(x1==x2)
+
+        x2 = c.fwd1([])
+        assert x2==[]
+
+        x1 = c.rev(np.array([-1,1]))
+        x2 = np.array([-1,-1])
+        assert np.all(x1==x2)
+
         c = _conv_list(np.array([0, 1, 3]))
         x1 = c.fwd(np.array([1, 1, 0, 3, 5, -2]))
         x2 = np.array([ 1,  1,  0,  2, -1, -1])
@@ -25,6 +37,26 @@ class TestArray(unittest.TestCase):
 
         x1 = c.rev(np.array([0, 2, 1, 4, -1, 5]))
         x2 = np.array([ 0,  3,  1, -1, -1, -1])
+        assert np.all(x1==x2)
+
+        x1 = c.rev(np.array([0, 2, 1, 4, -1, 5]))
+        x2 = np.array([ 0,  3,  1, -1, -1, -1])
+        assert np.all(x1==x2)
+
+        c = _conv_list(np.array([1, 0, 1, 3, 0]))
+        x1 = c.fwd(np.array([1, 1, 0, 3, 5, -2]))
+        x2 = np.array([ 1,  1,  0,  2, -1, -1])
+        assert np.all(x1==x2)
+
+        x1 = x1[x1>=0]
+        x1 = c.fwd1(x1)
+        x2 = [[0,2], [0,2], [1,4], [3]]
+        x2 = [np.array(x) for x in x2]
+        x3 = [np.all(x==y) for x, y in zip(x1, x2)]
+        assert all(x3)
+
+        x1 = c.rev(np.array([0, 2, 1, 4, -1, 5]))
+        x2 = np.array([-1,  1, -1,  0, -1, -1])
         assert np.all(x1==x2)
 
         c = _conv_slice(slice(10, 20, 2))
@@ -247,7 +279,10 @@ class TestArray(unittest.TestCase):
             np.s_[3,:],
             np.s_[:3,:3],
             np.s_[:3,4:],
-            np.s_[[],1]
+            np.s_[[],1],
+            np.s_[[1,1],1],
+            np.s_[[1,0,1,2],1],
+            np.s_[[1,0,1,2],1:]
         ]
 
         for x1 in x:
@@ -270,6 +305,14 @@ class TestArray(unittest.TestCase):
         f(np.s_[:4:2, :4:2], Sparse([[1,2]]))
         f(np.s_[:4:2, :4:2], Sparse([[1],[2]]))
         f(np.s_[:2, 0], Sparse([1,2]))
+        f(np.s_[:2, :2], Sparse([[0,1],[2,0]]))
+        f(np.s_[[0,1,1,2], 1], Sparse([1,2,3,4]))
+        f(np.s_[[1,1,1,1], 1], Sparse([1,2,3,4]))
+        f(np.s_[[2,1,1,0], 1], Sparse([1,2,3,4]))
+        f(np.s_[[2,1,1,0], 1:], Sparse([[1,2],[3,4],[5,6],[7,8]]))
+        f(np.s_[[2,1,1,0], 1:], Sparse([[1,2]]))
+        f(np.s_[[2,1,1,0], 1:], Sparse(1))
+        f(np.s_[[2,1,1,0], 1:], Sparse([0]))
 
 
 # %%

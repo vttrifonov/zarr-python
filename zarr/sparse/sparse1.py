@@ -13,6 +13,9 @@ class _conv_slice:
         r[f] = -1
         return r.astype(np.int64)
 
+    def fwd1(self, x):
+        return [[j] for j in x]
+
     def rev(self, x):
         r = self.s.start + self.s.step*x
         f = (x<0) | (r>=self.s.stop)
@@ -21,15 +24,17 @@ class _conv_slice:
 
 class _conv_list:
     def __init__(self, l):
-        #l = np.array([2,1,0,0,1,2])
         n = np.int64(len(l))
-        o = np.argsort(l)        
-        i = np.arange(n)[o]
-        u = np.unique(l[o], return_index=True)
-        i = np.split(i, u[1][1:])
-        self.l = u[0]
+        o = np.argsort(l)
+        l, i = np.unique(l[o], return_index=True)
+        i = i[1:]
+        i = np.split(np.arange(n)[o], i)
+        r = np.full(n, -1, dtype=np.int64)
+        if len(l)>0:
+            r[[x[-1] for x in i]] = l
+        self.l = l
         self.i = i
-        self.j = [l[x] for x in i]
+        self.r = r
         self.len = n
         self.keep = True
 
@@ -42,12 +47,12 @@ class _conv_list:
         return r.astype(np.int64)
 
     def fwd1(self, x):
-
+        return [self.i[j] for j in x]
 
     def rev(self, x):
         r = np.full(len(x), -1, dtype=np.int64)
-        i = np.where((x>=0) & (x<len(self.l)))[0]
-        r[i] = self.l[x[i]]
+        i = np.where((x>=0) & (x<self.len))[0]
+        r[i] = self.r[x[i]]
         return r.astype(np.int64)
 
 class _conv_single:
@@ -58,6 +63,9 @@ class _conv_single:
     
     def fwd(self, x):
         return np.where(x==self.x, 0, -1).astype(np.int64)
+
+    def fwd1(self, x):
+        return [[j] for j in x]
 
     def rev(self, x):
         return np.where(x==0, self.x, -1).astype(np.int64)
@@ -86,12 +94,29 @@ def _conv(n, x):
         raise IndexError('out of bounds')
     return _conv_list(x)
 
-
 def _conv_coords(conv, coords):
     coords = zip(conv, list(coords))
     coords = [x[0](x[1]) for x in coords]
     coords = np.array(coords)
     return coords
+
+def _conv_coords2(data, *coords):
+    coords = list(it.product(*coords))
+    data = np.repeat(data, len(coords))
+    coords = np.array(coords).T
+    return data, coords
+
+def _conv_coords1(conv, coords, data):
+    if len(data)==0:
+        return coords, data
+    r = zip(conv, list(coords))
+    r = [x[0](x[1]) for x in r]
+    r = zip(data, *r)
+    r = [_conv_coords2(*x) for x in r]
+    data = tuple(x for x, _ in r)
+    coords = tuple(x for _, x in r)
+    coords, data = np.c_[coords], np.r_[data]
+    return coords, data
 
 class _conv_key:
     def __init__(self, k, s):
@@ -111,6 +136,12 @@ class _conv_key:
         return _conv_coords(
             [x.fwd for x in self.conv], 
             coords
+        )
+
+    def fwd1(self, coords, data):
+        return _conv_coords1(
+            [x.fwd1 for x in self.conv],
+            coords, data
         )
 
     def rev(self, coords):
@@ -349,10 +380,11 @@ class Sparse:
     def __getitem__(self, k):
         conv = self._conv_key(k)
         shape = conv.shape1 
-        coords = conv.fwd(self._coords)        
-        i = np.all(coords>=0, axis=0)
-        coords = coords[conv.keep_dims,:]
+        coords = conv.fwd(self._coords)
+        i = np.all(coords>=0, axis=0)        
         coords, data = coords[:,i], self._data[i]
+        coords, data = conv.fwd1(coords, data)
+        coords = coords[conv.keep_dims,:]
 
         return self.__class__(
             coords = coords, 
@@ -369,13 +401,15 @@ class Sparse:
         v = v.broadcast_to(conv.shape1)
         v = v.reshape(shape=conv.shape2, order=self._order)
         v_coords = conv.rev(v.coords)
+        i = np.all(v_coords>=0, axis=0)
+        v_coords, v_data = v_coords[:,i], v.data[i]
 
         i = conv.fwd(self._coords)
         i = np.any(i<0, axis=0)
         data, coords = self.data[i], self._coords[:,i]
 
         self._coords = np.c_[v_coords, coords]
-        self._data = np.r_[v.data, data]
+        self._data = np.r_[v_data, data]
         self._normalized = False
 
     def __array__(self):
