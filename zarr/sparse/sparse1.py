@@ -107,17 +107,15 @@ def _conv_coords1(conv, coords, data):
         r[i,:] = conv[i](coords[i,:])
     
     n = np.vectorize(len)(r).prod(axis=0)
-
-    n1 = n.sum()
-    data1 = np.empty(n1, dtype=data.dtype)
-    coords1 = np.empty((coords.shape[0], n1), dtype=coords.dtype)
+    data1 = np.repeat(data, n)
+    n = n.sum()
+    coords1 = np.empty((coords.shape[0], n), dtype=coords.dtype)
 
     j = 0
-    for i in range(len(data)):
-        s = slice(j, j+n[i])
-        data1[s] = data[i]
-        coords1[:,s] = np.array(list(it.product(*r[:,i]))).T
-        j = s.stop
+    for i in range(len(data)):        
+        for k in it.product(*r[:,i]):
+            coords1[:,j] = k
+            j += 1
 
     return coords1, data1
 
