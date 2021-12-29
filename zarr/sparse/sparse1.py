@@ -256,6 +256,7 @@ class Sparse:
                 coords = np.unravel_index(
                     self._index, shape=shape, order=order
                 )
+                coords = np.array(coords)
         normalized = False
 
         return self.__class__(
