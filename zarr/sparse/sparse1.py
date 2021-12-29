@@ -95,28 +95,31 @@ def _conv(n, x):
     return _conv_list(x)
 
 def _conv_coords(conv, coords):
-    coords = zip(conv, list(coords))
-    coords = [x[0](x[1]) for x in coords]
-    coords = np.array(coords)
-    return coords
-
-def _conv_coords2(data, *coords):
-    coords = list(it.product(*coords))
-    data = np.repeat(data, len(coords))
-    coords = np.array(coords).T
-    return data, coords
+    for i in range(len(conv)):
+        coords[i,:] = conv[i](coords[i,:])
 
 def _conv_coords1(conv, coords, data):
     if len(data)==0:
         return coords, data
-    r = zip(conv, list(coords))
-    r = [x[0](x[1]) for x in r]
-    r = zip(data, *r)
-    r = [_conv_coords2(*x) for x in r]
-    data = tuple(x for x, _ in r)
-    coords = tuple(x for _, x in r)
-    coords, data = np.c_[coords], np.r_[data]
-    return coords, data
+
+    r = np.empty(coords.shape, dtype=object)
+    for i in range(len(conv)):
+        r[i,:] = conv[i](coords[i,:])
+    
+    n = np.vectorize(len)(r).prod(axis=0)
+
+    n1 = n.sum()
+    data1 = np.empty(n1, dtype=data.dtype)
+    coords1 = np.empty((coords.shape[0], n1), dtype=coords.dtype)
+
+    j = 0
+    for i in range(len(data)):
+        s = slice(j, j+n[i])
+        data1[s] = data[i]
+        coords1[:,s] = np.array(list(it.product(*r[:,i]))).T
+        j = s.stop
+
+    return coords1, data1
 
 class _conv_key:
     def __init__(self, k, s):
@@ -133,7 +136,7 @@ class _conv_key:
         self.conv = [_conv(n, x) for n, x in zip(s, k)]
 
     def fwd(self, coords):
-        return _conv_coords(
+        _conv_coords(
             [x.fwd for x in self.conv], 
             coords
         )
@@ -145,7 +148,7 @@ class _conv_key:
         )
 
     def rev(self, coords):
-        return _conv_coords(
+        _conv_coords(
             [x.rev for x in self.conv], 
             coords
         )
@@ -282,7 +285,8 @@ class Sparse:
     def __getitem__(self, k):
         conv = self._conv_key(k)
         shape = conv.shape1 
-        coords = conv.fwd(self._coords)
+        coords = self._coords.copy()
+        conv.fwd(coords)
         i = np.all(coords>=0, axis=0)        
         coords, data = coords[:,i], self._data[i]
         coords, data = conv.fwd1(coords, data)
@@ -300,11 +304,13 @@ class Sparse:
         v = v.astype(self.dtype)
         v = v.broadcast_to(conv.shape1)
         v = v.reshape(shape=conv.shape2, order=self._order)
-        v_coords = conv.rev(v.coords)
+        v_coords = v.coords.copy()
+        conv.rev(v_coords)
         i = np.all(v_coords>=0, axis=0)
         v_coords, v_data = v_coords[:,i], v.data[i]
 
-        i = conv.fwd(self._coords)
+        i = self._coords.copy()
+        conv.fwd(i)
         i = np.any(i<0, axis=0)
         data, coords = self.data[i], self._coords[:,i]
 
