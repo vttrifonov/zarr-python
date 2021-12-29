@@ -2,10 +2,11 @@
 import unittest
 import sparse
 import numpy as np
-from zarr.sparse.sparse1 import array
+from zarr.sparse.sparse1 import array, full
 import pytest
 
 sparse_array = array
+sparse_full = full
 
 def np_array(x, shape, dtype):
     x1 = np.empty(shape, dtype=dtype)
@@ -81,10 +82,6 @@ class TestArray(unittest.TestCase):
 
     def test_creation(self):
         with pytest.raises(ValueError):
-            #missing dtype
-            sparse_array()
-
-        with pytest.raises(ValueError):
             #coords must be 2d
             sparse_array([1], coords=[1])
 
@@ -117,9 +114,9 @@ class TestArray(unittest.TestCase):
 
         f(sparse_array([], coords=np.empty((3,0), dtype=np.int64)), np_array([], (0,0,0), np.float64))
 
-        f(sparse_array(fill_value=1), np_array(1, (), np.int64))
+        f(sparse_full((), 1), np_array(1, (), np.int64))
 
-        f(sparse_array(fill_value=0, shape=(0,)), np_array([], (0,), np.int64))
+        f(sparse_full((0,), 0), np_array([], (0,), np.int64))
 
         f(sparse_array(1), np_array([1], (), np.int64))
 
@@ -133,13 +130,13 @@ class TestArray(unittest.TestCase):
 
         f(sparse_array([1], coords=[[0]]), np_array([1], (1,), np.int64))
 
-        f(sparse_array(fill_value=1, shape=(2,2)), np_array([1]*4, (2,2), np.int64))
+        f(sparse_full((2,2), 1), np_array([1]*4, (2,2), np.int64))
 
-        f(sparse_array(fill_value=[1,2,3], shape=(2,2)), np_array([[1,2,3]]*4, (2,2), object))
+        f(sparse_full((2,2), [1,2,3]), np_array([[1,2,3]]*4, (2,2), object))
 
-        f(sparse_array(dtype=str, shape=(2,2)), np_array(['']*4, (2,2), str))
+        f(sparse_full((2,2), dtype=str), np_array(['']*4, (2,2), str))
 
-        f(sparse_array(dtype=object, shape=(2,2)), np_array([0]*4, (2,2), object))
+        f(sparse_full((2,2), dtype=object), np_array([0]*4, (2,2), object))
 
         f(sparse_array([1], coords=[[0]], dtype=str), np_array(['1'], (1,), str))
 
@@ -251,8 +248,6 @@ class TestArray(unittest.TestCase):
                 err_msg=f'x: {xi}, s: {si}'
             )
 
-        f(0, 2)
-
         for xi in range(len(x)):
             for si in range(len(s)):
                 f(xi, si)
@@ -300,7 +295,7 @@ class TestArray(unittest.TestCase):
                 f(x1, s1)
 
     def test_setitem(self):
-        x1 = sparse_array(shape=(3,3), dtype=np.float64)
+        x1 = sparse_full((3,3), dtype=np.float64)
         x2 = np.array(x1)
         def f(i, v):
             x1[i] = v
