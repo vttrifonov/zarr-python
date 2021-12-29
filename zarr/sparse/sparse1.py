@@ -108,9 +108,11 @@ def _conv_coords1(conv, coords, data):
     
     n = np.vectorize(len)(r).prod(axis=0)
     data1 = np.repeat(data, n)
-    n = n.sum()
-    coords1 = np.empty((coords.shape[0], n), dtype=coords.dtype)
 
+    coords1 = np.empty(
+        (coords.shape[0], len(data1)), 
+        dtype=coords.dtype
+    )
     j = 0
     for i in range(len(data)):        
         for k in it.product(*r[:,i]):
