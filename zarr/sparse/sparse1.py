@@ -494,3 +494,11 @@ def array(
         data, coords, fill_value, shape, order, normalized
     )
 
+def zeros( 
+    shape, dtype,
+    order = 'C',  normalized = False
+):
+    return full(
+        shape, dtype=dtype, order=order, 
+        normalized=normalized
+    )
