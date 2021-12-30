@@ -379,7 +379,7 @@ class Sparse:
         
 def full( 
     shape, fill_value = None, dtype = None,
-    order = 'C',  normalized = False
+    order = 'C'
 ):
     if order is None:
         raise ValueError('missing order')
@@ -412,11 +412,13 @@ def full(
     
     data = np.array([], dtype=dtype)
     coords = np.empty((len(shape),0), dtype=np.int64)
-    normalized = np.full((), normalized, dtype=bool)[()]
 
     return Sparse(
-        data, coords, fill_value, shape, order, normalized
+        data, coords, fill_value, shape, order, True
     )
+
+def zeros(shape, dtype, order = 'C'):
+    return full(shape, dtype=dtype, order=order)
 
 def array( 
     data, coords = None,
@@ -489,11 +491,12 @@ def array(
         if shape == ():
             data = data.ravel()
             data = data[data!=fill_value]
-            coords = np.empty((0,len(data)), dtype=np.int64)
+            coords = np.empty((0,len(data)), dtype=np.int64)            
         else:
             coords = np.nonzero(data!=fill_value)
             data = data[coords]
             coords = np.array(coords)
+        normalized = True
 
     normalized = np.full((), normalized, dtype=bool)[()]
 
@@ -501,11 +504,3 @@ def array(
         data, coords, fill_value, shape, order, normalized
     )
 
-def zeros( 
-    shape, dtype,
-    order = 'C',  normalized = False
-):
-    return full(
-        shape, dtype=dtype, order=order, 
-        normalized=normalized
-    )
