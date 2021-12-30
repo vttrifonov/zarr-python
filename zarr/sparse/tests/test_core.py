@@ -20,7 +20,7 @@ from numpy.testing import assert_array_almost_equal as _assert_array_almost_equa
 from numpy.testing import assert_array_equal as _assert_array_equal
 from pkg_resources import parse_version
 
-from zarr.sparse.sparse import Array
+from zarr.sparse.sparse1 import Array, Sparse
 from zarr.meta import json_loads
 from zarr.n5 import N5Store, N5FSStore, n5_keywords
 from zarr.storage import (
@@ -193,7 +193,7 @@ class TestArray(unittest.TestCase):
 
         # check empty
         b = z[:]
-        assert isinstance(b, sparse.COO)
+        assert isinstance(b, Sparse)
         assert a.shape == b.shape
         assert a.dtype == b.dtype
 
@@ -232,10 +232,10 @@ class TestArray(unittest.TestCase):
         assert a[0] == z[0]
         assert a[-1] == z[-1]
         # unusual integer items
-        assert a[42] == z[np.int64(42)]
-        assert a[42] == z[np.int32(42)]
-        assert a[42] == z[np.uint64(42)]
-        assert a[42] == z[np.uint32(42)]
+        assert a[42] == z[np.int64(42)].todense()
+        assert a[42] == z[np.int32(42)].todense()
+        assert a[42] == z[np.uint64(42)].todense()
+        assert a[42] == z[np.uint32(42)].todense()
         # too many indices
         with pytest.raises(IndexError):
             z[:, :]
@@ -266,6 +266,7 @@ class TestArray(unittest.TestCase):
             f.fill(fill_value)
             z = self.create_array(shape=a.shape, chunks=100, dtype=a.dtype,
                                   fill_value=fill_value)
+            z[:]
             z[190:310] = a[190:310]
 
             assert_array_equal(f[:190], z[:190])
@@ -868,7 +869,7 @@ class TestArray(unittest.TestCase):
         assert (1,) == z.chunks
 
         # check __getitem__
-        assert isinstance(z[:], sparse.COO)
+        assert isinstance(z[:], Sparse)
         assert_array_equal(a, np.array(z))
         assert_array_equal(a, z[:])
         assert_array_equal(a, z[...])
@@ -903,7 +904,7 @@ class TestArray(unittest.TestCase):
         assert (10, 1) == z.chunks
 
         # check __getitem__
-        assert isinstance(z[:], sparse.COO)
+        assert isinstance(z[:], Sparse)
         assert_array_equal(a, np.array(z))
         assert_array_equal(a, z[:])
         assert_array_equal(a, z[...])
@@ -949,11 +950,11 @@ class TestArray(unittest.TestCase):
 
         # check __getitem__
         b = z[...]
-        assert isinstance(b, sparse.COO)
+        assert isinstance(b, Sparse)
         assert a.shape == b.shape
         assert a.dtype == b.dtype
         assert_array_equal(a, np.array(z))
-        assert_array_equal(a, z[...])
+        assert_array_equal(a, z[...].todense())
         assert a[()] == z[()]
         with pytest.raises(IndexError):
             z[0]

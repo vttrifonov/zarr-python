@@ -1172,7 +1172,14 @@ class Array:
         if out is None:
             #VTT
             #out = np.empty(out_shape, dtype=out_dtype, order=self._order)
-            out = self._empty(out_shape, dtype=out_dtype)
+
+            fill_value = None
+            if self._fill_value is not None:
+                if fields:
+                    fill_value = self._fill_value[fields]
+                else:
+                    fill_value = self._fill_value
+            out = self._empty(out_shape, fill_value=fill_value, dtype=out_dtype)
         else:
             check_array_shape('out', out, out_shape)
 
@@ -2684,7 +2691,7 @@ class Array:
 
         return self.view(filters=filters, dtype=dtype, read_only=True)
 
-    def _empty(self, shape, dtype=None, order=None):
+    def _empty(self, shape, fill_value=None, dtype=None, order=None):
         return np.empty(shape, dtype=dtype or self._dtype, order=order or self._order)
 
     def _zeros(self, shape, dtype=None, order=None):
