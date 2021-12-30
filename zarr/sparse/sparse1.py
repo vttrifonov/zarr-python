@@ -491,7 +491,7 @@ def array(
         if shape == ():
             data = data.ravel()
             data = data[data!=fill_value]
-            coords = np.empty((0,len(data)), dtype=np.int64)            
+            coords = np.empty((0,len(data)), dtype=np.int64)
         else:
             coords = np.nonzero(data!=fill_value)
             data = data[coords]
@@ -503,4 +503,82 @@ def array(
     return Sparse(
         data, coords, fill_value, shape, order, normalized
     )
+
+
+from zarr.sparse.core import Array as _Array
+import io
+
+class Array(_Array):
+    def _decode_chunk_postprocess(self, chunk, expected_shape):
+        # view as numpy array with correct dtype
+        #VTT
+        #chunk = ensure_ndarray(chunk)
+        chunk = io.BytesIO(chunk)
+        chunk = sparse.load_npz(chunk)
+        chunk = Sparse(chunk)
+
+        # special case object dtype, because incorrect handling can lead to
+        # segfaults and other bad things happening
+        if self._dtype != object:
+            #VTT
+            chunk = chunk.view(self._dtype)
+        elif chunk.dtype != object:
+            # If we end up here, someone must have hacked around with the filters.
+            # We cannot deal with object arrays unless there is an object
+            # codec in the filter chain, i.e., a filter that converts from object
+            # array to something else during encoding, and converts back to object
+            # array during decoding.
+            raise RuntimeError('cannot read object array without object codec')
+
+        # ensure correct chunk shape
+        #VTT
+        chunk = chunk.reshape(-1, order='A')
+        chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
+
+        return chunk
+
+    def _encode_chunk_preprocess(self, chunk):
+        b = io.BytesIO()
+        chunk = tocoo(chunk, self._fill_value)
+        sparse.save_npz(b, chunk)
+        b = b.getvalue()
+        return b
+
+    def _zeros(self, shape, dtype=None, order=None):
+        return zeros(shape, dtype=dtype or self._dtype)
+
+    def _empty(self, shape, dtype=None, order=None):
+        return self._zeros(shape, dtype=dtype)
+
+    def _full(self, shape, fill_value=None, dtype=None, order=None):
+        fill_value = fill_value or self._fill_value
+        if fill_value is None:
+            return self._zeros(shape, dtype=dtype)
+        else:
+            return full(shape, fill_value, dtype=dtype or self._dtype)
+
+    def __getitem__(self, *args, **kwargs):
+        x = super().__getitem__(*args, **kwargs)
+        return x
+
+    def get_basic_selection(self, *args, **kwargs):
+        x = super().get_basic_selection(*args, **kwargs)
+        return x
+
+    def get_coordinate_selection(self, *args, **kwargs):
+        x = super().get_coordinate_selection(*args, **kwargs)
+        return x
+
+    def get_mask_selection(self, *args, **kwargs):
+        x = super().get_mask_selection(*args, **kwargs)
+        return x
+
+    def get_orthogonal_selection(self, *args, **kwargs):
+        x = super().get_orthogonal_selection(*args, **kwargs)
+        return x
+
+    def __array__(self, *args):
+        x = super().__array__(*args)
+        x = np.array(x)
+        return x
 
