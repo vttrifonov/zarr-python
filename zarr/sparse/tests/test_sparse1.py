@@ -14,6 +14,14 @@ def np_array(x, shape, dtype):
     x2[...] = x
     return x1
 
+def assert_array_equal(x, y, err_msg=None):
+    if hasattr(x, 'todense'):
+        x = x.todense()
+
+    if hasattr(y, 'todense'):
+        y = y.todense()
+
+    np.testing.assert_array_equal(x, y, err_msg=err_msg)
 
 #%%
 class TestArray(unittest.TestCase):
@@ -351,6 +359,49 @@ class TestArray(unittest.TestCase):
         f(np.s_[[2,1,1,0], 1:], [0])
         f(np.s_[:2, :2], array([1,0], fill_value=1))
 
+    def test_subarray(self):
+        x1 = np.array([[1,2],[3,4]])
+        x2 = sparse_array(x1, dtype='(2,2)i4')
+        assert_array_equal(x1, x2)
+
+        x3 = x2.broadcast_to((2,2))
+        x4 = np.broadcast_to(x1, (2,2,2,2)).copy()
+        assert_array_equal(x3, x4)
+
+        assert_array_equal(x3[0,0], x4[0,0])
+        assert_array_equal(x3[:2,0], x4[:2,0])
+        assert_array_equal(x3[0,1:], x4[0,1:])
+        assert_array_equal(x3[[0,1],1:], x4[[0,1],1:])
+
+        x3[0,0] = [[0,0],[0,0]]
+        assert x3.data.shape == (3,2,2)
+
+        x4[0,0,:,:] = [[0,0],[0,0]]
+        assert_array_equal(x3,x4)
+
+        x5 = x3.reshape((4,))
+        x6 = x4.reshape((4,2,2))
+        assert_array_equal(x5, x6)
+
+        x5[2:4] = [[0,0],[0,0]]    
+        assert x5.data.shape == (1,2,2)
+
+        x6[2:4,:,:] = [[0,0],[0,0]]    
+        assert_array_equal(x5, x6)
+
+        x1 = np.zeros((2,2,2,2), dtype='i4')
+        x2 = sparse_full(shape=(2,2), dtype='(2,2)i4')
+        assert_array_equal(x1, x2)
+
+        x1 = np.zeros((0,2,2), dtype='i4')
+        x2 = sparse_full(shape=(0,), dtype='(2,2)i4')
+        assert_array_equal(x1, x2)
+
+        with pytest.raises(ValueError):
+            x1 = np.array([[1,2],[3,4]])
+            x2 = sparse_array(x1)
+            x3 = x2.astype(dtype='(2,2)i4')
+
     def test_structured(self):
         x = np.array([
                 (b'a', 1),
@@ -399,7 +450,4 @@ class TestArray(unittest.TestCase):
                 err_msg=f'f: {f}'
             )
         
-        x2 = x['bar']
-        x2[0] = ((0, 1, 2), (1, 2, 3))
-
 # %%

@@ -173,11 +173,12 @@ class _conv_key:
 
 class Sparse:
     def __init__(self, 
-        data, coords, fill_value, shape, order, normalized
+        data, coords, fill_value, dtype, shape, order, normalized
     ):
         self._data = data
         self._coords = coords
         self._fill_value = fill_value
+        self._dtype = dtype
         self._shape = shape        
         self._order = order
         self._normalized = normalized
@@ -196,7 +197,7 @@ class Sparse:
 
     @property
     def dtype(self):
-        return self._data.dtype
+        return self._dtype
 
     @property
     def order(self):
@@ -293,17 +294,30 @@ class Sparse:
 
         return self.__class__(
             data, coords, self._fill_value, 
-            shape, order, 
+            self._dtype, shape, order, 
             normalized
         )
 
     def astype(self, dtype):
-        if dtype is None or dtype == self.dtype:
+        if dtype is None:
             return self
 
+        dtype = np.empty((), dtype=[('f', dtype)])
+        dtype = dtype.dtype['f']
+
+        if dtype == self.dtype:
+            return self
+
+        if dtype.shape != self.dtype.shape:
+            raise ValueError('reshaping dtype is not implemented')
+
         data = self._data.astype(dtype)
+        _ = np.empty((), dtype=self.dtype)
+        _[()] = self._fill_value
+        _ = _.astype(dtype)
+        fill_value = _[()]
         return self.__class__(
-            data, self._coords, self._fill_value, 
+            data, self._coords, fill_value, 
             self._shape, self._order, 
             self._normalized
         )
@@ -316,11 +330,12 @@ class Sparse:
             isinstance(k, str) or
             isinstance(k, list) and all(isinstance(x, str) for x in k)
         ):
-            data = np.array(self._data[k], self.dtype[k])
+            data = self._data[k]
             fill_value = self._fill_value[k]
+            dtype = self.dtype[k]
             return self.__class__(
                 data, self._coords, fill_value, 
-                self._shape, self._order, 
+                dtype, self._shape, self._order, 
                 self._normalized
             )
 
@@ -335,11 +350,11 @@ class Sparse:
 
         r = self.__class__(
             data, coords, self._fill_value, 
-            shape, self._order, 
+            self._dtype, shape, self._order, 
             self._normalized
         )
         if shape==():
-            if self._shape != () or k!=Ellipsis:
+            if self._shape != () or k not in (Ellipsis, (Ellipsis,)):
                 r = r.todense()[()]
         return r
 
@@ -368,7 +383,10 @@ class Sparse:
 
     def todense(self):
         a = np.empty(self._shape, dtype=self.dtype)
-        a.fill(self._fill_value)
+        if self.dtype==object:
+            a.fill(self._fill_value)
+        else:
+            a[...] = self._fill_value
         if a.shape==():
             if len(self._data)>0:
                 a[()] = self._data[0]
@@ -401,7 +419,7 @@ class Sparse:
             coords1 = np.array(coords1).T
 
         coords2 = np.tile(self.coords, coords1.shape[1])
-        data = np.tile(self._data, coords1.shape[1])    
+        data = np.tile(self._data, (coords1.shape[1],)+(1,)*(self._data.ndim-1))
         coords1 = np.repeat(coords1, len(self._data), axis=1)
 
         coords3 = np.empty(
@@ -420,7 +438,7 @@ class Sparse:
         
         return self.__class__(
             data, coords3, self._fill_value, 
-            shape, self._order, 
+            self._dtype, shape, self._order, 
             self._normalized
         )
 
@@ -431,7 +449,8 @@ class Sparse:
         return self.__class__(
             self._data.copy(), 
             self._coords.copy(), 
-            self._fill_value, 
+            self._fill_value,             
+            self._dtype,
             self._shape, order,
             self._normalized
         )
@@ -468,13 +487,15 @@ def full(
         fill_value = np.zeros((), dtype=dtype)[()]
     else:
         if dtype!=object:
-            fill_value = np.full((), fill_value)[()]
+            _ = np.empty((), dtype=dtype)
+            _[()] = fill_value
+            fill_value = _[()]
     
     data = np.array([], dtype=dtype)
     coords = np.empty((len(shape),0), dtype=np.int64)
 
     return Sparse(
-        data, coords, fill_value, shape, order, True
+        data, coords, fill_value, dtype, shape, order, True
     )
 
 def zeros(shape, dtype, order = 'C'):
@@ -487,7 +508,7 @@ def array(
     order = 'C',  normalized = False
 ):
     if isinstance(data, Sparse):
-        if fill_value is not None and fill_value != data.fill_value:
+        if fill_value is not None and np.any(fill_value != data.fill_value):
             data = data.todense()
             coords = None
         else:
@@ -497,15 +518,18 @@ def array(
 
     if dtype is None:
         data = np.asarray(data)
+        dtype = data.dtype
     else:
-        data = np.asarray(data, dtype=dtype)
-    dtype = data.dtype
+        dtype = np.empty((), dtype=[('f', dtype)])
+        dtype = dtype.dtype['f']
+        data = np.asarray(data, dtype=dtype.base)
+
 
     if fill_value is None:
         fill_value = np.zeros((), dtype=dtype)[()]
     else:
         _ = np.empty((), dtype=dtype)
-        _.fill(fill_value)
+        _[()] = fill_value
         fill_value = _[()]
 
     if order is None:
@@ -522,8 +546,6 @@ def array(
         except TypeError:
             raise ValueError('coords must be int')
 
-        if data.ndim != 1:
-            raise ValueError('data must be 1D')
         if coords.shape[1] != len(data):
             raise ValueError('data and coords must have same length')
 
@@ -541,7 +563,10 @@ def array(
                     raise ValueError('coordinate too large')
     else:
         if shape is None:
-           shape = data.shape
+            if data.ndim == 0:
+                shape = ()
+            else:
+                shape = data.shape[:(data.ndim-len(dtype.shape))]
 
     shape = np.asarray(shape)
     if shape.ndim != 1:
@@ -556,21 +581,27 @@ def array(
     shape = tuple(shape)
         
     if coords is None:
-        data = data.reshape(shape, order=order)
+        data = data.reshape(shape+dtype.shape, order=order)
+        if shape==(): 
+            data = data[np.newaxis,...]
+        coords = data!=fill_value
+        coords = coords.any(
+            axis=tuple(range(len(shape), data.ndim))
+        )
+        coords = np.nonzero(coords)
+        data = data[coords]
         if shape == ():
-            data = data.ravel()
-            data = data[data!=fill_value]
-            coords = np.empty((0,len(data)), dtype=np.int64)
+            coords = np.zeros((0,len(data)), dtype=np.int64)
         else:
-            coords = np.nonzero(data!=fill_value)
-            data = data[coords]
             coords = np.array(coords)
         normalized = True
 
     normalized = np.full((), normalized, dtype=bool)[()]
 
     return Sparse(
-        data, coords, fill_value, shape, order, normalized
+        data, coords, fill_value, 
+        dtype, shape, order, 
+        normalized
     )
 
 from zarr.sparse.core import Array as _Array
@@ -608,7 +639,7 @@ class Array(_Array):
         chunk = array(chunk, fill_value=self._fill_value)
         chunk = (
             chunk._data, chunk._coords,
-            chunk._fill_value, chunk._shape, 
+            chunk._fill_value, chunk._dtype, chunk._shape, 
             chunk._order, chunk._normalized
         )
         b = pickle.dumps(chunk)
