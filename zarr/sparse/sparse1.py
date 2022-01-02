@@ -1,5 +1,7 @@
 import numpy as np
 import itertools as it
+from numcodecs.compat import ensure_bytes, ensure_ndarray
+from collections.abc import MutableMapping
 
 class _conv_slice:
     def __init__(self, s):
@@ -251,7 +253,7 @@ class Sparse:
                 shape = shape.reshape(1)
             else:
                 if shape.ndim != 1:
-                    raise ValueError('coords must be 1D')
+                    raise ValueError('shape must be 1D')
             try:
                 _ = shape.astype(np.int64, casting='safe')
             except TypeError:
@@ -608,43 +610,6 @@ from zarr.sparse.core import Array as _Array
 import pickle
 
 class Array(_Array):
-    def _decode_chunk_postprocess(self, chunk, expected_shape):
-        # view as numpy array with correct dtype
-        #VTT
-        #chunk = ensure_ndarray(chunk)
-        chunk = pickle.loads(chunk)
-        chunk = Sparse(*chunk)
-
-        # special case object dtype, because incorrect handling can lead to
-        # segfaults and other bad things happening
-        if self._dtype != object:
-            #VTT
-            chunk = chunk.view(self._dtype)
-        elif chunk.dtype != object:
-            # If we end up here, someone must have hacked around with the filters.
-            # We cannot deal with object arrays unless there is an object
-            # codec in the filter chain, i.e., a filter that converts from object
-            # array to something else during encoding, and converts back to object
-            # array during decoding.
-            raise RuntimeError('cannot read object array without object codec')
-
-        # ensure correct chunk shape
-        #VTT
-        chunk = chunk.reshape(-1, order='A')
-        chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
-
-        return chunk
-
-    def _encode_chunk_preprocess(self, chunk):
-        chunk = array(chunk, fill_value=self._fill_value)
-        chunk = (
-            chunk._data, chunk._coords,
-            chunk._fill_value, chunk._dtype, chunk._shape, 
-            chunk._order, chunk._normalized
-        )
-        b = pickle.dumps(chunk)
-        return b
-
     def _full(self, shape, fill_value=None, dtype=None, order=None):
         fill_value = fill_value if fill_value is not None else self._fill_value
         if fill_value is None:
@@ -682,4 +647,89 @@ class Array(_Array):
         x = super().__array__(*args)
         x = x.todense()
         return x
+
+    def _encode_chunk_preprocess(self, chunk):
+        chunk = array(chunk, fill_value=self._fill_value)
+        chunk = (
+            chunk._data, chunk._coords,
+            chunk._fill_value, chunk._dtype, chunk._shape, 
+            chunk._order, chunk._normalized
+        )
+        b = pickle.dumps(chunk)
+        return b
+
+    def _encode_chunk(self, chunk):
+        chunk = self._encode_chunk_preprocess(chunk)
+
+        # apply filters
+        if self._filters:
+            for f in self._filters:
+                chunk = f.encode(chunk)
+
+        # check object encoding
+        #VTT
+        if ensure_ndarray(chunk).dtype == object:
+            raise RuntimeError('cannot write object array without object codec')
+
+        # compress
+        if self._compressor:
+            cdata = self._compressor.encode(chunk)
+        else:
+            cdata = chunk
+
+        # ensure in-memory data is immutable and easy to compare
+        if isinstance(self.chunk_store, MutableMapping):
+            cdata = ensure_bytes(cdata)
+
+        return cdata
+
+
+    def _decode_chunk(self, cdata, start=None, nitems=None, expected_shape=None):
+        # decompress
+        if self._compressor:
+            # only decode requested items
+            if (
+                all(x is not None for x in [start, nitems])
+                and self._compressor.codec_id == "blosc"
+            ) and hasattr(self._compressor, "decode_partial"):
+                chunk = self._compressor.decode_partial(cdata, start, nitems)
+            else:
+                chunk = self._compressor.decode(cdata)
+        else:
+            chunk = cdata
+
+        # apply filters
+        if self._filters:
+            for f in reversed(self._filters):
+                chunk = f.decode(chunk)
+
+        return self._decode_chunk_postprocess(chunk, expected_shape)
+
+    def _decode_chunk_postprocess(self, chunk, expected_shape):
+        # view as numpy array with correct dtype
+        #VTT
+        #chunk = ensure_ndarray(chunk)
+        chunk = pickle.loads(chunk)
+        chunk = Sparse(*chunk)
+
+        # special case object dtype, because incorrect handling can lead to
+        # segfaults and other bad things happening
+        if self._dtype != object:
+            #VTT
+            chunk = chunk.view(self._dtype)
+        elif chunk.dtype != object:
+            # If we end up here, someone must have hacked around with the filters.
+            # We cannot deal with object arrays unless there is an object
+            # codec in the filter chain, i.e., a filter that converts from object
+            # array to something else during encoding, and converts back to object
+            # array during decoding.
+            raise RuntimeError('cannot read object array without object codec')
+
+        # ensure correct chunk shape
+        #VTT
+        chunk = chunk.reshape(-1, order='A')
+        chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
+
+        return chunk
+
 
