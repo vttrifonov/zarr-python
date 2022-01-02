@@ -648,18 +648,14 @@ class Array(_Array):
         x = x.todense()
         return x
 
-    def _encode_chunk_preprocess(self, chunk):
+    def _encode_chunk(self, chunk):
         chunk = array(chunk, fill_value=self._fill_value)
         chunk = (
             chunk._data, chunk._coords,
             chunk._fill_value, chunk._dtype, chunk._shape, 
             chunk._order, chunk._normalized
         )
-        b = pickle.dumps(chunk)
-        return b
-
-    def _encode_chunk(self, chunk):
-        chunk = self._encode_chunk_preprocess(chunk)
+        chunk = pickle.dumps(chunk)
 
         # apply filters
         if self._filters:
@@ -683,7 +679,6 @@ class Array(_Array):
 
         return cdata
 
-
     def _decode_chunk(self, cdata, start=None, nitems=None, expected_shape=None):
         # decompress
         if self._compressor:
@@ -703,9 +698,6 @@ class Array(_Array):
             for f in reversed(self._filters):
                 chunk = f.decode(chunk)
 
-        return self._decode_chunk_postprocess(chunk, expected_shape)
-
-    def _decode_chunk_postprocess(self, chunk, expected_shape):
         # view as numpy array with correct dtype
         #VTT
         #chunk = ensure_ndarray(chunk)

@@ -2119,9 +2119,6 @@ class Array:
             for f in reversed(self._filters):
                 chunk = f.decode(chunk)
 
-        return self._decode_chunk_postprocess(chunk, expected_shape)
-
-    def _decode_chunk_postprocess(self, chunk, expected_shape):
         # view as numpy array with correct dtype
         #VTT
         chunk = ensure_ndarray(chunk)
@@ -2145,12 +2142,7 @@ class Array:
 
         return chunk
 
-    def _encode_chunk_preprocess(self, chunk):
-        return chunk
-
     def _encode_chunk(self, chunk):
-        chunk = self._encode_chunk_preprocess(chunk)
-
         # apply filters
         if self._filters:
             for f in self._filters:
