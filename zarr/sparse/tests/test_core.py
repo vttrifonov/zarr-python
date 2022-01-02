@@ -1298,7 +1298,7 @@ class TestArray(unittest.TestCase):
             z[:] = data
             a = z[:]
             assert a.dtype == object
-            compare_arrays(data, a, codec.dtype)
+            compare_arrays(data, a.todense(), codec.dtype)
             z.store.close()
 
         # convenience API
@@ -1308,7 +1308,7 @@ class TestArray(unittest.TestCase):
             assert isinstance(z.filters[0], VLenArray)
             assert z.filters[0].dtype == np.dtype(item_type)
             z[:] = data
-            compare_arrays(data, z[:], np.dtype(item_type))
+            compare_arrays(data, z[:].todense(), np.dtype(item_type))
             z.store.close()
 
     def test_object_arrays_danger(self):
@@ -1473,9 +1473,9 @@ class TestArray(unittest.TestCase):
         for compressor in compressors:
             a = self.create_array(shape=1000, chunks=100, compressor=compressor)
             a[0:100] = 1
-            assert np.all(a[0:100] == 1)
+            assert np.all(a[0:100].todense() == 1)
             a[:] = 1
-            assert np.all(a[:] == 1)
+            assert np.all(a[:].todense() == 1)
             a.store.close()
 
     def test_endian(self):

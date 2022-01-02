@@ -320,7 +320,7 @@ class Sparse:
         fill_value = _[()]
         return self.__class__(
             data, self._coords, fill_value, 
-            self._shape, self._order, 
+            dtype, self._shape, self._order, 
             self._normalized
         )
 
@@ -363,11 +363,19 @@ class Sparse:
     def __setitem__(self, k, v):
         conv = self._conv_key(k)
 
+        if isinstance(v, Sparse):
+            v = v.broadcast_to(conv.shape1)
+        else:
+            _ = np.empty(conv.shape1, dtype=self.dtype)
+            if _.shape == ():
+                _[()] = v
+            else:
+                _[...] = v
+            v = _
         v = array(
             v, 
             fill_value=self._fill_value, dtype=self.dtype
         )
-        v = v.broadcast_to(conv.shape1)
         v = v.reshape(shape=conv.shape2, order=self._order)
         v_coords = v.coords.copy()
         conv.rev(v_coords)
@@ -503,6 +511,21 @@ def full(
 def zeros(shape, dtype, order = 'C'):
     return full(shape, dtype=dtype, order=order)
 
+def _not_equal(x, y):
+    if isinstance(x, np.ndarray) != isinstance(y, np.ndarray):
+        return True
+    
+    if not isinstance(x, np.ndarray):
+        return x != y
+
+    if x.shape != y.shape or x.dtype != y.dtype:
+        return True
+
+    if x.dtype != object:
+        return (x!=y).all()
+
+    return any(_not_equal(a, b) for a, b in zip(x.ravel(), y.ravel()))
+
 def array( 
     data, coords = None,
     fill_value = None, dtype = None,
@@ -586,7 +609,10 @@ def array(
         data = data.reshape(shape+dtype.shape, order=order)
         if shape==(): 
             data = data[np.newaxis,...]
-        coords = data!=fill_value
+        if data.dtype == object:
+            coords = np.vectorize(lambda x: _not_equal(x, fill_value))(data)
+        else:
+            coords = data!=fill_value
         coords = coords.any(
             axis=tuple(range(len(shape), data.ndim))
         )
@@ -650,22 +676,24 @@ class Array(_Array):
 
     def _encode_chunk(self, chunk):
         chunk = array(chunk, fill_value=self._fill_value)
+
+        data = chunk.data
+        # apply filters
+        if self._filters:
+            for f in self._filters:
+                data = f.encode(data)
+
+        # check object encoding
+        #VTT
+        if ensure_ndarray(data).dtype == object:
+            raise RuntimeError('cannot write object array without object codec')
+
         chunk = (
-            chunk._data, chunk._coords,
+            data, chunk._coords,
             chunk._fill_value, chunk._dtype, chunk._shape, 
             chunk._order, chunk._normalized
         )
         chunk = pickle.dumps(chunk)
-
-        # apply filters
-        if self._filters:
-            for f in self._filters:
-                chunk = f.encode(chunk)
-
-        # check object encoding
-        #VTT
-        if ensure_ndarray(chunk).dtype == object:
-            raise RuntimeError('cannot write object array without object codec')
 
         # compress
         if self._compressor:
@@ -693,16 +721,22 @@ class Array(_Array):
         else:
             chunk = cdata
 
+        chunk = pickle.loads(chunk)
+        chunk = list(chunk)                
+        
         # apply filters
+        data =  chunk[0]
         if self._filters:
             for f in reversed(self._filters):
-                chunk = f.decode(chunk)
+                data = f.decode(data)
+        chunk[0] = data
+
+        chunk = Sparse(*chunk)
 
         # view as numpy array with correct dtype
         #VTT
         #chunk = ensure_ndarray(chunk)
-        chunk = pickle.loads(chunk)
-        chunk = Sparse(*chunk)
+
 
         # special case object dtype, because incorrect handling can lead to
         # segfaults and other bad things happening

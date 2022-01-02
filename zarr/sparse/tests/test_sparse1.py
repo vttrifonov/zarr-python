@@ -321,8 +321,6 @@ class TestArray(unittest.TestCase):
                 err_msg = f'x: {xi}, s: {si}'
             )
 
-        f(0,0)
-
         for xi in range(len(x)):
             for si in range(len(s)):
                 f(xi, si)
@@ -449,5 +447,16 @@ class TestArray(unittest.TestCase):
                 x[f].todense(), x1[f],
                 err_msg=f'f: {f}'
             )
+
+    def test_object(self):
+        x1 = sparse_full((3,), dtype=object)
+        x1[0] = 1
+        assert x1[0]==1
+        x1[1] = 'a'
+        assert x1[1]=='a'
+        x1[2] = [1,'a']
+        assert x1[2]==[1,'a']
+        x1[0] = np.array([1,2])
+        np.testing.assert_array_equal(x1[0], np.array([1,2]))
         
 # %%
