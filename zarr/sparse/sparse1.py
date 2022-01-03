@@ -327,19 +327,99 @@ class Sparse:
     def _conv_key(self, k):
         return _conv_key(k, self._shape)
 
+    class FieldsView:
+        def __init__(self, src, fields):
+            self._src = src
+            self._fields = fields
+
+        @property
+        def _reduced_src(self):
+            src = self._src
+            fields = self._fields
+            data = src._data[fields]
+            fill_value = src._fill_value[fields]
+            dtype = src.dtype[fields]
+            x = self.__class__(
+                data, src._coords, fill_value, 
+                dtype, src._shape, src._order, 
+                src._normalized
+            )
+            return x
+
+        def __getitem__(self, k):
+            return self._reduced_src[k]
+
+        def todense(self):
+            return self._reduced_src.todense()
+
+        def __setitem__(self, k, v):
+            src = self._src
+            dtype = src.dtype[self.fields]
+            fill_value = src.fill_value[self.fields]
+            order = src.order
+
+            conv = src._conv_key(k)
+
+            if isinstance(v, Sparse):
+                v = v.broadcast_to(conv.shape1)
+            else:
+                _ = np.empty(conv.shape1, dtype=dtype)
+                if _.shape == ():
+                    _[()] = v
+                else:
+                    _[...] = v
+                v = _
+            v = array(
+                v, 
+                fill_value=fill_value, dtype=dtype
+            )
+            v = v.reshape(shape=conv.shape2, order=order)
+            v_coords = v.coords.copy()
+            conv.rev(v_coords)
+            i = np.all(v_coords>=0, axis=0)
+            v_coords, v_data = v_coords[:,i], v.data[i]
+            v_index = np.ravel_multi_index(v_coords, src.shape)
+            o = np.argsort(v_index)
+            v_coords, v_data = v_coords[:,o], v_data[o]
+
+            coords1 = src._coords.copy()
+            conv.fwd(coords1)   
+            i = np.any(coords1<0, axis=0)
+
+            data, coords = src.data[i], src._coords[:,i]
+
+            coords1, data1 = coords1[:,~i], src._data[~i]
+            coords1, data1 = conv.fwd1(coords1, data1)
+            index1 = np.ravel_multi_index(coords1, src.shape)
+            index1, i = np.unique(index1, return_index=True)
+            coords1, data1 = coords1[:,i], data1[i]
+
+            i = np.searchsorted(v_index, index1)
+            j = i<len(v_index)            
+            i[j] = -1
+            j = np.where(~j)[0]
+            j = j[index1[j]!=v_index[i[j]]]
+            i[j] = -1
+            j = i!=-1
+            i = i[j]
+            coords1, data1 = coords1[:,j], src._data[j]
+            data1[self.fields] = v_data[i]
+
+            i = ~v_index.isin(v_index[i])
+            v_coords, v_data = v_coords[:,i], v_data[i]
+            v_data1 = np.full(v_data.shape, fill_value)
+            v_data1[self.fields] = v_data
+
+            src._coords = np.c_[v_coords, coords1, coords]
+            src._data = np.r_[v_data1, data1, data]
+            src._normalized = False
+
     def __getitem__(self, k):
         if (
             isinstance(k, str) or
             isinstance(k, list) and all(isinstance(x, str) for x in k)
         ):
-            data = self._data[k]
-            fill_value = self._fill_value[k]
-            dtype = self.dtype[k]
-            return self.__class__(
-                data, self._coords, fill_value, 
-                dtype, self._shape, self._order, 
-                self._normalized
-            )
+            return Sparse.FieldsView(self, k)
 
         conv = self._conv_key(k)
         shape = conv.shape1 
@@ -464,7 +544,6 @@ class Sparse:
             self._shape, order,
             self._normalized
         )
-
         
 def full( 
     shape, fill_value = None, dtype = None,
