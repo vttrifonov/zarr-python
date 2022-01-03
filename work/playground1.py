@@ -7,6 +7,21 @@ import pickle
 from pathlib import Path
 
 #%%
+class A:
+    pass
+
+x = np.empty((3,), dtype=object)
+x[0] = np.array([1,[1,2]], dtype=object)
+x[1] = 0
+x[2] = A()
+
+x1 = np.empty((), dtype=object)
+x1[()] = [1,[1,2]]
+
+np.equal(x, x1, dtype=object)
+
+
+#%%
 
 x3 = Path('xxx.pickle')
 if not x3.exists():
@@ -31,13 +46,6 @@ with x3.open('rb') as file:
 
 
 #%%
-r = [[1], [2,3], [4], [5,6,7], [10,11]]
-
-%timeit np.array(list(it.product(*r))).T
-
+n = [1,2,3]
+np.repeat(n, [2,2,1])
 # %%
-
-x = np.empty((2,2), dtype=object)
-x[0,:] = [[1,2], [1]]
-x[1,:] = [[], [1,2,3]]
-np.vectorize(len)(x).prod(axis=0).sum()
