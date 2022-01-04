@@ -2,6 +2,10 @@ import numpy as np
 import itertools as it
 from numcodecs.compat import ensure_bytes, ensure_ndarray
 from collections.abc import MutableMapping
+from zarr.util import (
+    normalize_chunks,
+    normalize_shape
+)
 
 class _conv_slice:
     def __init__(self, s):
@@ -339,7 +343,7 @@ class Sparse:
             data = src._data[fields]
             fill_value = src._fill_value[fields]
             dtype = src.dtype[fields]
-            x = self.__class__(
+            x = src.__class__(
                 data, src._coords, fill_value, 
                 dtype, src._shape, src._order, 
                 src._normalized
@@ -354,8 +358,8 @@ class Sparse:
 
         def __setitem__(self, k, v):
             src = self._src
-            dtype = src.dtype[self.fields]
-            fill_value = src.fill_value[self.fields]
+            dtype = src.dtype[self._fields]
+            fill_value = src.fill_value[self._fields]
             order = src.order
 
             conv = src._conv_key(k)
@@ -377,10 +381,10 @@ class Sparse:
             v_coords = v.coords.copy()
             conv.rev(v_coords)
             i = np.all(v_coords>=0, axis=0)
-            v_coords, v_data = v_coords[:,i], v.data[i]
-            v_index = np.ravel_multi_index(v_coords, src.shape)
+            v_coords, v_data, v_index = v_coords[:,i], v.data[i], v.coords[:,i]
+            v_index = np.ravel_multi_index(v_index, v.shape)
             o = np.argsort(v_index)
-            v_coords, v_data = v_coords[:,o], v_data[o]
+            v_coords, v_data, v_index = v_coords[:,o], v_data[o], v_index[o]
 
             coords1 = src._coords.copy()
             conv.fwd(coords1)   
@@ -389,26 +393,23 @@ class Sparse:
             data, coords = src.data[i], src._coords[:,i]
 
             coords1, data1 = coords1[:,~i], src._data[~i]
-            coords1, data1 = conv.fwd1(coords1, data1)
-            index1 = np.ravel_multi_index(coords1, src.shape)
-            index1, i = np.unique(index1, return_index=True)
-            coords1, data1 = coords1[:,i], data1[i]
+            index1 = np.ravel_multi_index(coords1, v.shape)
 
             i = np.searchsorted(v_index, index1)
-            j = i<len(v_index)            
+            j = i>=len(v_index)
             i[j] = -1
             j = np.where(~j)[0]
             j = j[index1[j]!=v_index[i[j]]]
             i[j] = -1
             j = i!=-1
             i = i[j]
-            coords1, data1 = coords1[:,j], src._data[j]
-            data1[self.fields] = v_data[i]
+            coords1, data1 = v_coords[:,i], data1[j]
+            data1[self._fields] = v_data[i]
 
-            i = ~v_index.isin(v_index[i])
+            i = ~np.isin(v_index, v_index[i])
             v_coords, v_data = v_coords[:,i], v_data[i]
-            v_data1 = np.full(v_data.shape, fill_value)
-            v_data1[self.fields] = v_data
+            v_data1 = np.full(v_data.shape, src.fill_value)
+            v_data1[self._fields] = v_data
 
             src._coords = np.c_[v_coords, coords1, coords]
             src._data = np.r_[v_data1, data1, data]
@@ -757,10 +758,11 @@ class Array(_Array):
         chunk = array(chunk, fill_value=self._fill_value)
 
         data = chunk.data
-        # apply filters
-        if self._filters:
-            for f in self._filters:
-                data = f.encode(data)
+        if len(data)>0:
+            # apply filters
+            if self._filters:
+                for f in self._filters:
+                    data = f.encode(data)
 
         # check object encoding
         #VTT
@@ -805,9 +807,10 @@ class Array(_Array):
         
         # apply filters
         data =  chunk[0]
-        if self._filters:
-            for f in reversed(self._filters):
-                data = f.decode(data)
+        if len(data)>0:
+            if self._filters:
+                for f in reversed(self._filters):
+                    data = f.decode(data)
         chunk[0] = data
 
         chunk = Sparse(*chunk)

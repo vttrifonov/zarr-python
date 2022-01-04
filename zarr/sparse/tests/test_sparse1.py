@@ -421,6 +421,14 @@ class TestArray(unittest.TestCase):
             x.data, np.array([(b'c', 3)], dtype=x.dtype)
         )
 
+        assert x['foo'][0] == b''
+
+        x['foo'][:] = [b'a', b'c']
+        assert x['foo'][1] == b'c'
+
+        x['foo'][1] = b'd'
+        assert x['foo'][1] == b'd'
+
         np.testing.assert_array_equal(
             x['foo'].todense(), 
             x.todense()['foo']

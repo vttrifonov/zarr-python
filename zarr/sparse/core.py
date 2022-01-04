@@ -2598,7 +2598,7 @@ class Array:
             read_only = self._read_only
         if synchronizer is None:
             synchronizer = self._synchronizer
-        a = Array(store=store, path=path, chunk_store=chunk_store, read_only=read_only,
+        a = self.__class__(store=store, path=path, chunk_store=chunk_store, read_only=read_only,
                   synchronizer=synchronizer, cache_metadata=True)
         a._is_view = True
 
