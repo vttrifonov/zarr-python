@@ -716,18 +716,19 @@ from zarr.sparse.core import Array as _Array
 import pickle
 
 class Array(_Array):
-    def _full(self, shape, fill_value=None, dtype=None, order=None):
-        fill_value = fill_value if fill_value is not None else self._fill_value
-        if fill_value is None:
-            return self._zeros(shape, dtype=dtype)
-        else:
-            return full(shape, fill_value, dtype=dtype or self._dtype)
+    def _init_chunk(self, empty_ok=False, fill_value=None):
+        dtype = self._dtype
+        order = self._order
+        shape = self._chunks
 
-    def _zeros(self, shape, dtype=None, order=None):
-        return zeros(shape, dtype=dtype or self._dtype)
+        x = full(shape, fill_value=self._fill_value, dtype=dtype, order=order)
+        if fill_value is not None:
+            x[...] = fill_value
 
-    def _empty(self, shape, fill_value=None, dtype=None, order=None):
-        return self._full(shape, fill_value, dtype=dtype)
+        return x
+
+    def _init_out(self, shape, fill_value, dtype):
+        return full(shape, fill_value=fill_value, dtype=dtype, order=self._order)
 
     def __getitem__(self, *args, **kwargs):
         x = super().__getitem__(*args, **kwargs)
@@ -769,12 +770,7 @@ class Array(_Array):
         if ensure_ndarray(data).dtype == object:
             raise RuntimeError('cannot write object array without object codec')
 
-        chunk = (
-            data, chunk._coords,
-            chunk._fill_value, chunk._dtype, chunk._shape, 
-            chunk._order, chunk._normalized
-        )
-        chunk = pickle.dumps(chunk)
+        chunk = pickle.dumps([data, chunk._coords])
 
         # compress
         if self._compressor:
@@ -802,8 +798,7 @@ class Array(_Array):
         else:
             chunk = cdata
 
-        chunk = pickle.loads(chunk)
-        chunk = list(chunk)                
+        chunk = pickle.loads(chunk)        
         
         # apply filters
         data =  chunk[0]
@@ -812,20 +807,8 @@ class Array(_Array):
                 for f in reversed(self._filters):
                     data = f.decode(data)
         chunk[0] = data
-
-        chunk = Sparse(*chunk)
-
-        # view as numpy array with correct dtype
-        #VTT
-        #chunk = ensure_ndarray(chunk)
-
-
-        # special case object dtype, because incorrect handling can lead to
-        # segfaults and other bad things happening
-        if self._dtype != object:
-            #VTT
-            chunk = chunk.view(self._dtype)
-        elif chunk.dtype != object:
+    
+        if self._dtype == object and data.dtype != object:
             # If we end up here, someone must have hacked around with the filters.
             # We cannot deal with object arrays unless there is an object
             # codec in the filter chain, i.e., a filter that converts from object
@@ -833,10 +816,42 @@ class Array(_Array):
             # array during decoding.
             raise RuntimeError('cannot read object array without object codec')
 
+        shape = expected_shape or self._chunks
+        chunk = array(
+            chunk[0], coords=chunk[1], 
+            fill_value=self._fill_value, dtype=self._dtype,
+            shape=shape, order=self._order,
+            normalized=False
+        )
+        #fill_value = self._fill_value
+        #if fill_value is None:
+        #    fill_value = np.zeros((), dtype=self._dtype)[()]
+        #chunk = Sparse(
+        #    *chunk, fill_value, self._dtype, shape, self._order,
+        #    False
+        #)
+
+        # view as numpy array with correct dtype
+        #VTT
+        #chunk = ensure_ndarray(chunk)
+
+        # special case object dtype, because incorrect handling can lead to
+        # segfaults and other bad things happening
+        #if self._dtype != object:
+            #VTT
+        #    chunk = chunk.view(self._dtype)
+        #elif chunk.dtype != object:
+            # If we end up here, someone must have hacked around with the filters.
+            # We cannot deal with object arrays unless there is an object
+            # codec in the filter chain, i.e., a filter that converts from object
+            # array to something else during encoding, and converts back to object
+            # array during decoding.
+        #    raise RuntimeError('cannot read object array without object codec')
+        
         # ensure correct chunk shape
         #VTT
-        chunk = chunk.reshape(-1, order='A')
-        chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
+        #chunk = chunk.reshape(-1, order='A')
+        #chunk = chunk.reshape(expected_shape or self._chunks, order=self._order)
 
         return chunk
 

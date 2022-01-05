@@ -11,6 +11,8 @@ from numcodecs.compat import ensure_bytes, ensure_ndarray
 
 from collections.abc import MutableMapping
 
+from numpy.core.numeric import empty_like
+
 from zarr.attrs import Attributes
 from zarr.codecs import AsType, get_codec
 from zarr.errors import ArrayNotFoundError, ReadOnlyError, ArrayIndexError
@@ -866,7 +868,7 @@ class Array:
             #chunk = np.zeros((), dtype=self._dtype)
             #if self._fill_value is not None:
             #    chunk.fill(self._fill_value)
-            chunk = self._full(())
+            chunk = self._init_chunk()
 
         else:
             chunk = self._decode_chunk(cdata)
@@ -1172,14 +1174,13 @@ class Array:
         if out is None:
             #VTT
             #out = np.empty(out_shape, dtype=out_dtype, order=self._order)
-
             fill_value = None
             if self._fill_value is not None:
                 if fields:
                     fill_value = self._fill_value[fields]
                 else:
                     fill_value = self._fill_value
-            out = self._empty(out_shape, fill_value=fill_value, dtype=out_dtype)
+            out = self._init_out(out_shape, fill_value, out_dtype)
         else:
             check_array_shape('out', out, out_shape)
 
@@ -1665,7 +1666,7 @@ class Array:
             #chunk = np.zeros((), dtype=self._dtype)
             #if self._fill_value is not None:
             #    chunk.fill(self._fill_value)
-            chunk = self._full(())
+            chunk = self._init_chunk()
 
         else:
             # decode chunk
@@ -1823,7 +1824,7 @@ class Array:
                 # size of chunk
                 # #VTT                
                 #tmp = np.empty(self._chunks, dtype=self.dtype)
-                tmp = self._empty(self._chunks)
+                tmp = self._init_chunk(empty_ok=True)
                 index_selection = PartialChunkIterator(chunk_selection, self.chunks)
                 for start, nitems, partial_out_selection in index_selection:
                     expected_shape = [
@@ -2043,7 +2044,7 @@ class Array:
                 #VTT
                 #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
                 #chunk.fill(value)
-                chunk = self._full(self._chunks, value)
+                chunk = self._init_chunk(fill_value=value)
 
             else:
 
@@ -2060,23 +2061,20 @@ class Array:
                 cdata = self.chunk_store[ckey]
 
             except KeyError:
-
                 # chunk not initialized
-                if self._fill_value is not None:
+                #if self._fill_value is not None:
                     #VTT                    
                     #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
                     #chunk.fill(self._fill_value)
-                    chunk = self._full(self._chunks)
-                elif self._dtype == object:
+                #elif self._dtype == object:
                     #VTT
                     #chunk = np.empty(self._chunks, dtype=self._dtype, order=self._order)
-                    chunk = self._empty(self._chunks)
-                else:
+                #else:
                     # N.B., use zeros here so any region beyond the array has consistent
                     # and compressible data
                     #VTT
                     #chunk = np.zeros(self._chunks, dtype=self._dtype, order=self._order)
-                    chunk = self._zeros(self._chunks)
+                chunk = self._init_chunk()
             else:
 
                 # decode chunk
@@ -2683,15 +2681,24 @@ class Array:
 
         return self.view(filters=filters, dtype=dtype, read_only=True)
 
-    def _empty(self, shape, fill_value=None, dtype=None, order=None):
-        return np.empty(shape, dtype=dtype or self._dtype, order=order or self._order)
+    def _init_chunk(self, empty_ok=False, fill_value=None):
+        fill_value = self._fill_value if fill_value is None else fill_value
+        dtype = self._dtype
+        order = self._order
+        shape = self._chunks
 
-    def _zeros(self, shape, dtype=None, order=None):
-        return np.zeros(shape, dtype=dtype or self._dtype, order=order or self._order)
+        if empty_ok:
+            return np.empty(shape, dtype=dtype, order=order)
+        
+        if fill_value is not None:
+            x = np.empty(shape, dtype=dtype, order=order)
+            x[...] = fill_value
+            return x
 
-    def _full(self, shape, fill_value=None, dtype=None, order=None):
-        fill_value = fill_value or self._fill_value
-        if fill_value is None:
-            return self._zeros(shape, dtype=dtype, order=order)
-        else:
-            return np.full(shape, fill_value, dtype=dtype or self._dtype, order=order or self._order)
+        if dtype == object:
+            return np.empty(shape, dtype=dtype, order=order)
+
+        return np.zeros(shape, dtype=dtype, order=order)
+
+    def _init_out(self, shape, fill_value, dtype):
+        return np.empty(shape, dtype=dtype, order=self._order)

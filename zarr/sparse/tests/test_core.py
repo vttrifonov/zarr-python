@@ -553,7 +553,7 @@ class TestArray(unittest.TestCase):
             "063b02ff8d9d3bab6da932ad5828b506ef0a6578",
             "f97b84dc9ffac807415f750100108764e837bb82",
             "c7190ad2bea1e9d2e73eaa2d3ca9187be1ead261",
-            "14470724dca6c1837edddedc490571b6a7f270bc",
+            "9e3c51a215044484371de192a1125342f624caf0",
             "2a1046dd99b914459b3e86be9dde05027a07d209",
         ]
 
@@ -2232,7 +2232,7 @@ class TestArrayWithBZ2Compressor(TestArray):
         # Check basic 1-D array with some data
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
         z[200:400] = np.arange(200, 400, dtype='i4')
-        assert '1e1bcaac63e4ef3c4a68f11672537131c627f168' == z.hexdigest()
+        assert '4da4586eb4cd85f614db19122eceb07005c9e5ac' == z.hexdigest()
 
         # Check basic 1-D array with attributes
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
@@ -2269,7 +2269,7 @@ class TestArrayWithBloscCompressor(TestArray):
         # Check basic 1-D array with some data
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
         z[200:400] = np.arange(200, 400, dtype='i4')
-        assert '90e30bdab745a9641cd0eb605356f531bc8ec1c3' == z.hexdigest()
+        assert 'c00fd3592225fdd75bb7c21447a4cb53bae6d209' == z.hexdigest()
 
         # Check basic 1-D array with attributes
         z = self.create_array(shape=(1050,), chunks=100, dtype='<i4')
